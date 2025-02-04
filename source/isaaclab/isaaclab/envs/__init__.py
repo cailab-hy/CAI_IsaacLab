@@ -47,6 +47,7 @@ from .common import VecEnvObs, VecEnvStepReturn, ViewerCfg
 from .direct_marl_env import DirectMARLEnv
 from .direct_marl_env_cfg import DirectMARLEnvCfg
 from .direct_rl_env import DirectRLEnv
+from .direct_rl_env_automate import DirectRLEnvAutomate
 from .direct_rl_env_cfg import DirectRLEnvCfg
 from .manager_based_env import ManagerBasedEnv
 from .manager_based_env_cfg import ManagerBasedEnvCfg
