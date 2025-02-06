@@ -464,7 +464,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self._compute_intermediate_values(dt=self.physics_dt)
 
         # ✪✪✪ Temporary fix for code testing (By Seunghwan Yu) ✪✪✪
-        time_out = self.episode_length_buf >=  self.max_episode_length - 1
+        time_out = self.episode_length_buf >=  70 # self.max_episode_length - 1
 
         return time_out, time_out
 
@@ -473,7 +473,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         """A function to check if the current step is the last step in the current episode."""
 
         # ✪✪✪ Temporary fix for code testing (By Seunghwan Yu) ✪✪✪
-        is_last_step = self.episode_length_buf == self.max_episode_length - 1 
+        is_last_step = self.episode_length_buf == 49 # self.max_episode_length - 1 
 
         return is_last_step[0]
     # -------------------------------------------------------------------------------
@@ -985,7 +985,9 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         print(f"goal pose: {ctrl_tgt_pos}")
         print(f"===================================\n")
 
+        self.close_gripper()
         self._move_gripper_to_eef_pose(ctrl_tgt_pos, ctrl_tgt_quat, if_log=True, close_gripper=True)
+        self.close_gripper()
 
     def _move_gripper_to_eef_pose(self, ctrl_tgt_pos, ctrl_tgt_quat, if_log, close_gripper):
         """Move end-effector to a given pose specifed by (ctrl_tgt_pos, ctrl_tgt_quat)."""
@@ -1027,6 +1029,27 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.sim.step(render=True)
         self.scene.update(dt=self.physics_dt)
         self._compute_intermediate_values(dt=self.physics_dt)
+
+    def close_gripper(self):
+        reset_task_prop_gains = torch.tensor(self.cfg.ctrl.reset_task_prop_gains, device=self.device).repeat(
+            (self.num_envs, 1)
+        )
+        reset_rot_deriv_scale = self.cfg.ctrl.reset_rot_deriv_scale
+        self._set_gains(reset_task_prop_gains, reset_rot_deriv_scale)
+
+        self.step_sim_no_action()
+
+        grasp_time = 0.0
+        while grasp_time < 0.25:
+            self.ctrl_target_joint_pos[self.env_ids, 7:] = 0.0  # Close gripper.
+            self.ctrl_target_gripper_dof_pos = 0.0
+            self.close_gripper_in_place()
+            self.step_sim_no_action()
+            grasp_time += self.sim.get_physics_dt()
+
+        self.prev_joint_pos = self.joint_pos[:, 0:7].clone()
+        self.prev_fingertip_pos = self.fingertip_midpoint_pos.clone()
+        self.prev_fingertip_quat = self.fingertip_midpoint_quat.clone()
 
     '''
     def _randomize_gripper_pose(self, env_ids, sim_steps, if_log, close_gripper):
