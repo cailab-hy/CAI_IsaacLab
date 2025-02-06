@@ -224,7 +224,8 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.left_finger_jacobian = jacobians[:, self.left_finger_body_idx - 1, 0:6, 0:7]
         self.right_finger_jacobian = jacobians[:, self.right_finger_body_idx - 1, 0:6, 0:7]
         self.fingertip_midpoint_jacobian = (self.left_finger_jacobian + self.right_finger_jacobian) * 0.5
-        self.arm_mass_matrix = self._robot.root_physx_view.get_mass_matrices()[:, 0:7, 0:7]
+        # self.arm_mass_matrix = self._robot.root_physx_view.get_mass_matrices()[:, 0:7, 0:7]
+        self.arm_mass_matrix = self._robot.root_physx_view.get_generalized_mass_matrices()[:, 0:7, 0:7]
         self.joint_pos = self._robot.data.joint_pos.clone()
         self.joint_vel = self._robot.data.joint_vel.clone()
 
@@ -463,7 +464,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self._compute_intermediate_values(dt=self.physics_dt)
 
         # ✪✪✪ Temporary fix for code testing (By Seunghwan Yu) ✪✪✪
-        time_out = self.episode_length_buf >=  10 # self.max_episode_length - 1
+        time_out = self.episode_length_buf >=  self.max_episode_length - 1
 
         return time_out, time_out
 
@@ -472,7 +473,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         """A function to check if the current step is the last step in the current episode."""
 
         # ✪✪✪ Temporary fix for code testing (By Seunghwan Yu) ✪✪✪
-        is_last_step = self.episode_length_buf == 9 # self.max_episode_length - 1 
+        is_last_step = self.episode_length_buf == self.max_episode_length - 1 
 
         return is_last_step[0]
     # -------------------------------------------------------------------------------
@@ -723,7 +724,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         fixed_state[:, 0:3] += fixed_pos_init_rand + self.scene.env_origins[env_ids]
         
         # Set the object's height (z value) to 0. (add by SH)
-        fixed_state[:, 2] = 0.0 
+        # fixed_state[:, 2] = 0.0 
 
         # (1.b.) Orientation
         fixed_orn_init_yaw = np.deg2rad(self.cfg_task.fixed_asset_init_orn_deg)
