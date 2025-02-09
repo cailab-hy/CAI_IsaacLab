@@ -456,6 +456,7 @@ class AutomateEnv(DirectRLEnv):
             self.extras["success_times"] = success_times
 
         self.prev_actions = self.actions.clone()
+
         return rew_buf
 
     def _update_rew_buf(self, curr_successes):

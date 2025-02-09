@@ -930,6 +930,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         # Set initial gains for the episode.
         self._set_gains(self.default_gains)
 
+        # Enable gravity.
         physics_sim_view.set_gravity(carb.Float3(*self.cfg.sim.gravity))
 
     # --- New Functions for AutoMate -----------------------------------------------------------------------------------------------------------------------------
@@ -985,9 +986,9 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         print(f"goal pose: {ctrl_tgt_pos}")
         print(f"===================================\n")
 
-        self.close_gripper()
+        # self.close_gripper()
         self._move_gripper_to_eef_pose(ctrl_tgt_pos, ctrl_tgt_quat, if_log=True, close_gripper=True)
-        self.close_gripper()
+        # self.close_gripper()
 
     def _move_gripper_to_eef_pose(self, ctrl_tgt_pos, ctrl_tgt_quat, if_log, close_gripper):
         """Move end-effector to a given pose specifed by (ctrl_tgt_pos, ctrl_tgt_quat)."""
