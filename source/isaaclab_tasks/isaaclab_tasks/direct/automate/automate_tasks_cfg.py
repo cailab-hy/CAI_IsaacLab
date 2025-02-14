@@ -89,18 +89,20 @@ class AutomateTask:
 # class plug_00004(HeldAssetCfg):
 @configclass
 class Plug(HeldAssetCfg):
-    usd_path = f"{AUTOMATE_ASSET_DIR}/00004_plug/00004_plug.usd"
+    # usd_path = f"{AUTOMATE_ASSET_DIR}/00004_plug/00004_plug.usd"
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00117_plug/00117_plug.usd"
     # usd_path = f"{ASSET_DIR}/factory_peg_8mm.usd"
-    diameter = 0.007986
-    height = 0.050
+    diameter = 0.00425 # 0.03227 # 0.007986
+    height = 0.10634 # 0.04319 # 0.050
     mass = 0.019
 
 # class socket_00004(HeldAssetCfg):
 @configclass
 class Socket(FixedAssetCfg):
-    usd_path = f"{AUTOMATE_ASSET_DIR}/00004_socket/00004_socket.usd"
-    diameter = 0.0081
-    height = 0.025
+    # usd_path = f"{AUTOMATE_ASSET_DIR}/00004_socket/00004_socket.usd"
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00117_socket/00117_socket.usd"
+    diameter = None # 0.0081
+    height = 0.06866 # 0.025
     base_height = 0.0
 
 @configclass

@@ -3,6 +3,11 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+# --- Lib for Automate ----------------------------------
+import os
+import json
+# -------------------------------------------------------
+
 import numpy as np
 import torch
 
@@ -24,6 +29,7 @@ class AutomateEnv(DirectRLEnv):
     cfg: AutomateEnvCfg
 
     def __init__(self, cfg: AutomateEnvCfg, render_mode: str | None = None, **kwargs):
+
         # Update number of obs/states
         cfg.observation_space = sum([OBS_DIM_CFG[obs] for obs in cfg.obs_order])
         cfg.state_space = sum([STATE_DIM_CFG[state] for state in cfg.state_order])
@@ -34,6 +40,40 @@ class AutomateEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         self._set_body_inertias()
+        
+        # --- Init Variable for AutoMate -------------------
+        # Env
+        self.palm_to_finger_dist = 0.1034 # distance from end-effector palm to midpoint between fingers
+
+        # Get Asset ID
+        self.asset_ID = "asset_00004"
+        
+        # Get disassembly distances
+        self.data_dir = "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data/"
+        self.held_grasp_file = "plug_grasps.json"
+        self.disassembly_dist_file = "disassembly_dist.json"
+        self.held_grasps, self.disassembly_dists = self._load_assembly_info()
+
+        # SBC
+        self.curriculum_success_thresh = 0.8  # success rate threshold for increasing curriculum difficulty
+        self.curriculum_failure_thresh = 0.5  # success rate threshold for decreasing curriculum difficulty
+        self.curriculum_freespace_range = 0.01
+        self.num_curriculum_step = 10
+        self.plug_pos_noise = [0.02, 0.02, 0.02] # pos noise w.r.t. socket position
+        self.plug_rot_noise = [0.0872665, 0.0872665, 0.0872665] # noise on base orientation [rad] w.r.t. socket orientation 
+
+        self.curriculum_height_bound, self.curriculum_height_step = self._get_curriculum_info(self.disassembly_dists)
+
+        '''
+        if self.cfg_task.env.if_eval:
+            self.curr_max_disp = self.curriculum_height_bound[:, 1]
+        else:
+            self.curr_max_disp = torch.zeros((self.num_envs, ), dtype=torch.float32, device=self.device)
+        '''
+        # Need to Edit
+        self.curr_max_disp = self.curriculum_height_bound[:, 1]
+        # --------------------------------------------------
+
         self._init_tensors()
         self._set_default_dynamics_parameters()
         self._compute_intermediate_values(dt=self.physics_dt)
@@ -102,6 +142,15 @@ class AutomateEnv(DirectRLEnv):
 
         self.held_base_pos = torch.zeros_like(self.held_base_pos_local)
         self.held_base_quat = self.identity_quat.clone().detach()
+
+        # --- Variable for AutoMate -----------------------------------------------------------
+        # Grasp pose tensors
+        self.palm_to_finger_center = torch.tensor([0.0, 0.0, self.palm_to_finger_dist], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        self.robot_to_gripper_quat = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+
+        self.held_grasp_pos_local = self.held_grasps[:self.num_envs, :3]
+        self.held_grasp_quat_local = torch.roll(self.held_grasps[:self.num_envs, 3:], -1, 1)
+        # -------------------------------------------------------------------------------------
 
         # Computer body indices.
         self.left_finger_body_idx = self._robot.body_names.index("panda_leftfinger")
@@ -211,6 +260,28 @@ class AutomateEnv(DirectRLEnv):
         self.target_held_base_quat[:], self.target_held_base_pos[:] = torch_utils.tf_combine(
             self.fixed_quat, self.fixed_pos, self.identity_quat, self.fixed_success_pos_local
         )
+
+        # --- Variable for AutoMate ------------------------------------------------------------------------------------
+        self.held_grasp_quat, self.held_grasp_pos = torch_utils.tf_combine(self.held_quat,
+                                                                               self.held_pos,
+                                                                               self.held_grasp_quat_local,
+                                                                               self.held_grasp_pos_local)
+
+        self.held_grasp_quat, self.held_grasp_pos = torch_utils.tf_combine(self.held_grasp_quat,
+                                                                                 self.held_grasp_pos,
+                                                                                 self.robot_to_gripper_quat,
+                                                                                 self.palm_to_finger_center)
+
+        self.gripper_goal_quat, self.gripper_goal_pos = torch_utils.tf_combine(self.fixed_quat,
+                                                                                   self.fixed_pos,
+                                                                                   self.held_grasp_quat_local,
+                                                                                   self.held_grasp_pos_local)
+
+        self.gripper_goal_quat, self.gripper_goal_pos = torch_utils.tf_combine(self.gripper_goal_quat,
+                                                                                   self.gripper_goal_pos,
+                                                                                   self.robot_to_gripper_quat,
+                                                                                   self.palm_to_finger_center)
+        # --------------------------------------------------------------------------------------------------------------
 
         # Compute pos of keypoints on held asset, and fixed asset in world frame
         for idx, keypoint_offset in enumerate(self.keypoint_offsets):
@@ -342,6 +413,7 @@ class AutomateEnv(DirectRLEnv):
             delta_pos, -self.cfg.ctrl.pos_action_bounds[0], self.cfg.ctrl.pos_action_bounds[1]
         )
         self.ctrl_target_fingertip_midpoint_pos = self.fixed_pos_action_frame + pos_error_clipped
+        # self.ctrl_target_fingertip_midpoint_pos[:,2] = 0.25 # need to edit (robot hands up)
 
         # Convert to quat and set rot target
         angle = torch.norm(rot_actions, p=2, dim=-1)
@@ -505,6 +577,7 @@ class AutomateEnv(DirectRLEnv):
         """
         super()._reset_idx(env_ids)
 
+        self._generate_plug_disp_and_noise(env_ids)
         self._set_assets_to_default_pose(env_ids)
         self._set_franka_to_default_pose(joints=self.cfg.ctrl.reset_joints, env_ids=env_ids)
         self.step_sim_no_action()
@@ -529,6 +602,12 @@ class AutomateEnv(DirectRLEnv):
         held_state = self._held_asset.data.default_root_state.clone()[env_ids]
         held_state[:, 0:3] += self.scene.env_origins[env_ids]
         held_state[:, 7:] = 0.0
+
+        # --- Apply SBC to held assets ----------------------------------------------------------------------------
+        # print(f"self.curriculum_disp[env_ids]: {self.curriculum_disp[env_ids]}")
+        # held_state[:, 2] += self.curriculum_disp[env_ids]
+        # ---------------------------------------------------------------------------------------------------------
+
         self._held_asset.write_root_pose_to_sim(held_state[:, 0:7], env_ids=env_ids)
         self._held_asset.write_root_velocity_to_sim(held_state[:, 7:], env_ids=env_ids)
         self._held_asset.reset()
@@ -583,20 +662,12 @@ class AutomateEnv(DirectRLEnv):
         if self.cfg_task.name == "plug_insert":
             held_asset_relative_pos = torch.zeros_like(self.held_base_pos_local)
             held_asset_relative_pos[:, 2] = self.cfg_task.held_asset_cfg.height
-            held_asset_relative_pos[:, 2] -= self.cfg_task.robot_cfg.franka_fingerpad_length
+            held_asset_relative_pos[:, 2] -= self.cfg_task.robot_cfg.franka_fingerpad_length    # 0.0324
+
         else:
             raise NotImplementedError("Task not implemented")
 
         held_asset_relative_quat = self.identity_quat
-        if self.cfg_task.name == "nut_thread":
-            # Rotate along z-axis of frame for default position.
-            initial_rot_deg = self.cfg_task.held_asset_rot_init
-            rot_yaw_euler = torch.tensor([0.0, 0.0, initial_rot_deg * np.pi / 180.0], device=self.device).repeat(
-                self.num_envs, 1
-            )
-            held_asset_relative_quat = torch_utils.quat_from_euler_xyz(
-                roll=rot_yaw_euler[:, 0], pitch=rot_yaw_euler[:, 1], yaw=rot_yaw_euler[:, 2]
-            )
 
         return held_asset_relative_pos, held_asset_relative_quat
 
@@ -629,7 +700,7 @@ class AutomateEnv(DirectRLEnv):
         physics_sim_view = sim_utils.SimulationContext.instance().physics_sim_view
         physics_sim_view.set_gravity(carb.Float3(0.0, 0.0, 0.0))
 
-        # (1.) Randomize fixed asset pose.
+        # --- (1.) Randomize fixed asset pose. ---------------------------------------------------------------------------------
         fixed_state = self._fixed_asset.data.default_root_state.clone()[env_ids]
         # (1.a.) Position
         rand_sample = torch.rand((len(env_ids), 3), dtype=torch.float32, device=self.device)
@@ -675,7 +746,7 @@ class AutomateEnv(DirectRLEnv):
         )
         self.fixed_pos_obs_frame[:] = fixed_tip_pos
 
-        # (2) Move gripper to randomizes location above fixed asset. Keep trying until IK succeeds.
+        # --- (2) Move gripper to randomizes location above fixed asset. Keep trying until IK succeeds. ------------------------
         # (a) get position vector to target
         bad_envs = env_ids.clone()
         ik_attempt = 0
@@ -693,6 +764,7 @@ class AutomateEnv(DirectRLEnv):
             hand_init_pos_rand = torch.tensor(self.cfg_task.hand_init_pos_noise, device=self.device)
             above_fixed_pos_rand = above_fixed_pos_rand @ torch.diag(hand_init_pos_rand)
             above_fixed_pos[bad_envs] += above_fixed_pos_rand
+            above_fixed_pos[:, 2] += self.cfg_task.held_asset_cfg.height # need to edit (robot hands up)
 
             # (b) get random orientation facing down
             hand_down_euler = (
@@ -728,10 +800,11 @@ class AutomateEnv(DirectRLEnv):
             )
 
             ik_attempt += 1
+            print(f"Failed to solve IK for all environments. Recalculating... ik_attempt: {ik_attempt}")
 
         self.step_sim_no_action()
 
-        # (3) Randomize asset-in-gripper location.
+        # --- (3) Randomize asset-in-gripper location. -------------------------------------------------------------------------
         # flip gripper z orientation
         flip_z_quat = torch.tensor([0.0, 0.0, 1.0, 0.0], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
         fingertip_flipped_quat, fingertip_flipped_pos = torch_utils.tf_combine(
@@ -768,6 +841,7 @@ class AutomateEnv(DirectRLEnv):
         held_state[:, 0:3] = translated_held_asset_pos + self.scene.env_origins
         held_state[:, 3:7] = translated_held_asset_quat
         held_state[:, 7:] = 0.0
+        # held_state[:, 2] -= 0.02 # need to edit (plug down to robot hands)
         self._held_asset.write_root_pose_to_sim(held_state[:, 0:7])
         self._held_asset.write_root_velocity_to_sim(held_state[:, 7:])
         self._held_asset.reset()
@@ -832,3 +906,55 @@ class AutomateEnv(DirectRLEnv):
         self._set_gains(self.default_gains)
 
         physics_sim_view.set_gravity(carb.Float3(*self.cfg.sim.gravity))
+
+    # --- New Functions for AutoMate -----------------------------------------------------------------------------------------------------------------------------
+    def _load_assembly_info(self):
+        """Load grasp pose and disassembly distance for helds in each environment."""
+
+        held_grasp_path = os.path.join(os.getcwd(), self.data_dir, self.held_grasp_file)
+        disassembly_dist_path = os.path.join(os.getcwd(), self.data_dir, self.disassembly_dist_file)
+        
+        in_file = open(held_grasp_path, "r")
+        held_grasp_dict = json.load(in_file)
+        held_grasps = [ held_grasp_dict[self.asset_ID] for i in range(self.num_envs)]
+
+        in_file = open(disassembly_dist_path, "r")
+        disassembly_dist_dict = json.load(in_file)
+        disassembly_dists = [ disassembly_dist_dict[self.asset_ID] for i in range(self.num_envs)]
+
+        return torch.as_tensor(held_grasps).to(self.device), torch.as_tensor(disassembly_dists).to(self.device)
+
+    def _get_curriculum_info(self, disassembly_dists):
+        """Calculate the ranges and step sizes for Sampling-based Curriculum (SBC) in each environment."""
+
+        curriculum_height_bound = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)
+        curriculum_height_step = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)
+
+        curriculum_height_bound[:, 1] = disassembly_dists + self.curriculum_freespace_range
+
+        curriculum_height_step[:, 0] = curriculum_height_bound[:, 1] / self.num_curriculum_step
+        curriculum_height_step[:, 1] = - curriculum_height_step[:, 0] / 2.0
+
+        return curriculum_height_bound, curriculum_height_step
+
+    def _generate_plug_disp_and_noise(self, env_ids):
+        """Generate displacement for SBC and plug randomization."""
+        
+        # Generate randomized displacement along z-axis based on curriculum
+        curr_curriculum_disp_range = self.curriculum_height_bound[:, 1] - self.curr_max_disp # shape: (num_envs, 1), different disp range for each env
+        self.curriculum_disp = self.curriculum_height_bound[:, 1] - curr_curriculum_disp_range * (torch.rand((self.num_envs,), dtype=torch.float32, device=self.device))
+
+        '''
+        # Generate randomized plug position
+        plug_pos_noise = 2 * (torch.rand((self.num_envs, 3), dtype=torch.float32, device=self.device) - 0.5)  # [-1, 1]
+        self.plug_pos_noise[:] = plug_pos_noise @ torch.diag(torch.tensor(self.plug_pos_noise, device=self.device))
+
+        # Generate randomized plug rotation
+        plug_rot_noise = 2 * (torch.rand((self.num_envs, 3), dtype=torch.float32, device=self.device) - 0.5)  # [-1, 1]
+        plug_rot_noise = plug_rot_noise @ torch.diag(torch.tensor(self.plug_rot_noise, dtype=torch.float32, device=self.device))
+        plug_rot_euler = torch.tensor([0.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1)
+        plug_rot_euler += plug_rot_noise
+        self.plug_rot_quat[:] = torch_utils.quat_from_euler_xyz(plug_rot_euler[:, 0], plug_rot_euler[:, 1], plug_rot_euler[:, 2])
+        '''
+
+    # ------------------------------------------------------------------------------------------------------------------------------------------------------------
