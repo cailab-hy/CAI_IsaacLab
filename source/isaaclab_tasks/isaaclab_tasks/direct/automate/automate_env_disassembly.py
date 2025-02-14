@@ -41,6 +41,21 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
     cfg: AutomateEnvCfg
 
     def __init__(self, cfg: AutomateEnvCfg, render_mode: str | None = None, **kwargs):
+        # --- Variable for Automate ---------------------------------------------------------------------------
+        # Get Asset ID
+        self.asset_ID = "asset_00004"
+
+        # Get disassembly distances
+        self.data_dir = "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data/"
+        self.disassembly_dist_file = "disassembly_dist.json"
+        self.disassembly_dists = self._load_assembly_info()
+
+        # --- Parameter from AutoMateTaskDissemlble.yaml (Isaac Gym) ------------------------------------------
+        # self.move_gripper_sim_steps = 120
+        # self.close_gripper_sim_steps = 80
+        # self.disassemble_sim_steps = 60
+        # self.numActions = 12
+        # -----------------------------------------------------------------------------------------------------
 
         # Update number of obs/states
         cfg.observation_space = sum([OBS_DIM_CFG[obs] for obs in cfg.obs_order])
@@ -55,18 +70,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self._init_tensors()
         self._set_default_dynamics_parameters()
         self._compute_intermediate_values(dt=self.physics_dt)
-
-        # --- Variable for Automate ---------------------------------------------------------------------------
-        self.data_dir = "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data/"
-        self.disassembly_dist_file = "disassembly_dist.json"
-        self.disassembly_dists = self._load_assembly_info()
-
-        # --- Parameter from AutoMateTaskDissemlble.yaml (Isaac Gym) ------------------------------------------
-        # self.move_gripper_sim_steps = 120
-        # self.close_gripper_sim_steps = 80
-        # self.disassemble_sim_steps = 60
-        # self.numActions = 12
-        # -----------------------------------------------------------------------------------------------------
 
     def _set_body_inertias(self):
         """Note: this is to account for the asset_options.armature parameter in IGE."""
@@ -945,7 +948,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             disassembly_dist_dict = json.load(in_file)
 
             # Need to Edit (Add By Seunghwan Yu)
-            disassembly_dists = [ disassembly_dist_dict["asset_00004"] for i in range(self.num_envs)]
+            disassembly_dists = [ disassembly_dist_dict[self.asset_ID] for i in range(self.num_envs)]
         else:
             raise FileNotFoundError(f"{disassembly_dist_path} does not exist.")
 
