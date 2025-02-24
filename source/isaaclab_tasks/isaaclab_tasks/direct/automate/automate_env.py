@@ -24,7 +24,6 @@ class AutomateEnv(DirectRLEnv):
     cfg: AutomateEnvCfg
 
     def __init__(self, cfg: AutomateEnvCfg, render_mode: str | None = None, **kwargs):
-
         # Update number of obs/states
         cfg.observation_space = sum([OBS_DIM_CFG[obs] for obs in cfg.obs_order])
         cfg.state_space = sum([STATE_DIM_CFG[state] for state in cfg.state_order])

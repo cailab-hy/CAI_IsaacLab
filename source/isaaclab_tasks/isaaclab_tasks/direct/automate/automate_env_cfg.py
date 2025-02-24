@@ -192,4 +192,4 @@ class AutomateEnvCfg(DirectRLEnvCfg):
 class AutomateTaskPlugInsertCfg(AutomateEnvCfg):
     task_name = "plug_insert"
     task = PlugInsert()
-    episode_length_s = 8.53 # for horizon 128
+    episode_length_s = 10

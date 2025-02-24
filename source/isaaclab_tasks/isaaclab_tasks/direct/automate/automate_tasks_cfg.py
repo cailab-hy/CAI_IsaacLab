@@ -86,35 +86,80 @@ class AutomateTask:
     success_threshold: float = 0.04
     engage_threshold: float = 0.9
 
-# class plug_00004(HeldAssetCfg):
 @configclass
-class Plug(HeldAssetCfg):
-    # usd_path = f"{AUTOMATE_ASSET_DIR}/00004_plug/00004_plug.usd"
+class Plug_00117(HeldAssetCfg):
     usd_path = f"{AUTOMATE_ASSET_DIR}/00117_plug/00117_plug.usd"
-    # usd_path = f"{ASSET_DIR}/factory_peg_8mm.usd"
-    diameter = 0.00425 # 0.03227 # 0.007986
-    height = 0.10634 # 0.04319 # 0.050
+    
+    # Used for automate_env.py's def _set_franka_to_default_pose() | unit: meter
+    diameter = 0.00425
+
+    # Used for automate_env.py's def get_handheld_asset_relative_pose() | unit: meter
+    height = 0.10634
+
+    # Not Used?
     mass = 0.019
 
-# class socket_00004(HeldAssetCfg):
+@configclass
+class Socket_00117(FixedAssetCfg):
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00117_socket/00117_socket.usd"
+
+    # Not Used?
+    diameter = 0.03863
+
+    # Used for automate_env.py's def _init_tensors() & def randomize_initial_state() | unit: meter
+    height = 0.06866
+    base_height = 0.0
+
+@configclass
+class Plug_00004(HeldAssetCfg):
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00004_plug/00004_plug.usd"
+    
+    # Used for automate_env.py's def _set_franka_to_default_pose() | unit: meter
+    diameter = 0.00690
+
+    # Used for automate_env.py's def get_handheld_asset_relative_pose() | unit: meter
+    height = 0.07522
+
+    # Not Used?
+    mass = 0.019
+
+@configclass
+class Socket_00004(FixedAssetCfg):
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00004_socket/00004_socket.usd"
+
+    # Not Used?
+    diameter = 0.00744
+
+    # Used for automate_env.py's def _init_tensors() & def randomize_initial_state() | unit: meter
+    height = 0.02219
+    base_height = 0.0
+
+@configclass
+class Plug(HeldAssetCfg):
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00004_plug/00004_plug.usd"
+    diameter = 0.007986
+    height = 0.050
+    mass = 0.019
+
+
 @configclass
 class Socket(FixedAssetCfg):
-    # usd_path = f"{AUTOMATE_ASSET_DIR}/00004_socket/00004_socket.usd"
-    usd_path = f"{AUTOMATE_ASSET_DIR}/00117_socket/00117_socket.usd"
-    diameter = None # 0.0081
-    height = 0.06866 # 0.025
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00004_socket/00004_socket.usd"
+    diameter = 0.0081
+    height = 0.025
     base_height = 0.0
+
 
 @configclass
 class PlugInsert(AutomateTask):
     name = "plug_insert"
     fixed_asset_cfg = Socket()
-    held_asset_cfg = Plug()
+    held_asset_cfg = Plug_00004()
     asset_size = 8.0
     duration_s = 10.0
 
     # Robot
-    hand_init_pos: list = [0.0, 0.0, 0.047]  # Relative to fixed asset tip.
+    hand_init_pos: list = [0.0, 0.0, held_asset_cfg.height] # [0.0, 0.0, 0.047] # Relative to fixed asset tip. (edit by SH Yu)
     hand_init_pos_noise: list = [0.02, 0.02, 0.01]
     hand_init_orn: list = [3.1416, 0.0, 0.0]
     hand_init_orn_noise: list = [0.0, 0.0, 0.785]
@@ -132,6 +177,7 @@ class PlugInsert(AutomateTask):
     keypoint_coef_baseline: list = [5, 4]
     keypoint_coef_coarse: list = [50, 2]
     keypoint_coef_fine: list = [100, 0]
+
     # Fraction of socket height.
     success_threshold: float = 0.04
     engage_threshold: float = 0.9

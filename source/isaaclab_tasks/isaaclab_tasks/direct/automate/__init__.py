@@ -7,7 +7,6 @@ import gymnasium as gym
 
 from . import agents
 from .automate_env import AutomateEnv
-from .automate_env_disassembly import AutomateEnvDisassembly
 from .automate_env_cfg import AutomateTaskPlugInsertCfg
 
 ##
@@ -17,16 +16,6 @@ from .automate_env_cfg import AutomateTaskPlugInsertCfg
 gym.register(
     id="Isaac-Automate-Direct-v0",
     entry_point="isaaclab_tasks.direct.automate:AutomateEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": AutomateTaskPlugInsertCfg,
-        "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
-    },
-)
-
-gym.register(
-    id="Isaac-Automate-Disassembly-v0",
-    entry_point="isaaclab_tasks.direct.automate:AutomateEnvDisassembly",
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": AutomateTaskPlugInsertCfg,
