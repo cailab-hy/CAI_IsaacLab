@@ -41,7 +41,7 @@ import torch
 from rl_games.common import env_configurations
 from rl_games.common.vecenv import IVecEnv
 
-from isaaclab.envs import DirectRLEnv, ManagerBasedRLEnv, VecEnvObs
+from isaaclab.envs import DirectRLEnv, ManagerBasedRLEnv, VecEnvObs#, DirectRLEnvAutomate
 
 """
 Vectorized environment wrapper.
@@ -79,7 +79,7 @@ class RlGamesVecEnvWrapper(IVecEnv):
         https://github.com/NVIDIA-Omniverse/IsaacGymEnvs
     """
 
-    def __init__(self, env: ManagerBasedRLEnv | DirectRLEnv, rl_device: str, clip_obs: float, clip_actions: float):
+    def __init__(self, env: ManagerBasedRLEnv | DirectRLEnv , rl_device: str, clip_obs: float, clip_actions: float): #DirectRLEnvAutomate
         """Initializes the wrapper instance.
 
         Args:
@@ -93,7 +93,7 @@ class RlGamesVecEnvWrapper(IVecEnv):
             ValueError: If specified, the privileged observations (critic) are not of type :obj:`gym.spaces.Box`.
         """
         # check that input is valid
-        if not isinstance(env.unwrapped, ManagerBasedRLEnv) and not isinstance(env.unwrapped, DirectRLEnv):
+        if not isinstance(env.unwrapped, ManagerBasedRLEnv) and not isinstance(env.unwrapped, DirectRLEnv): #and not isinstance(env.unwrapped, DirectRLEnvAutomate)
             raise ValueError(
                 "The environment must be inherited from ManagerBasedRLEnv or DirectRLEnv. Environment type:"
                 f" {type(env)}"
@@ -171,7 +171,7 @@ class RlGamesVecEnvWrapper(IVecEnv):
         return cls.__name__
 
     @property
-    def unwrapped(self) -> ManagerBasedRLEnv | DirectRLEnv:
+    def unwrapped(self) -> ManagerBasedRLEnv | DirectRLEnv  : #| DirectRLEnvAutomate
         """Returns the base environment of the wrapper.
 
         This will be the bare :class:`gymnasium.Env` environment, underneath all layers of wrappers.

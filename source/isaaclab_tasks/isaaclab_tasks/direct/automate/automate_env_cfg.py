@@ -7,6 +7,8 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
 from isaaclab.envs import DirectRLEnvCfg
+##
+from isaaclab.envs import DirectRLEnvAutomate
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import PhysxCfg, SimulationCfg
 from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
@@ -88,7 +90,7 @@ class AutomateEnvCfg(DirectRLEnvCfg):
         "fixed_quat",
     ]
 
-    task_name: str = "peg_insert"  # peg_insert, gear_mesh, nut_thread
+    task_name: str = "plug_insert"  # peg_insert, gear_mesh, nut_thread
     task: AutomateTask = AutomateTask()
     obs_rand: ObsRandCfg = ObsRandCfg()
     ctrl: CtrlCfg = CtrlCfg()
@@ -192,4 +194,4 @@ class AutomateEnvCfg(DirectRLEnvCfg):
 class AutomateTaskPlugInsertCfg(AutomateEnvCfg):
     task_name = "plug_insert"
     task = PlugInsert()
-    episode_length_s = 10
+    episode_length_s = 10.0

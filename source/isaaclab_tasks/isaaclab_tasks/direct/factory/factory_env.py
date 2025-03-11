@@ -713,6 +713,7 @@ class FactoryEnv(DirectRLEnv):
 
         hand_down_quat = torch.zeros((self.num_envs, 4), dtype=torch.float32, device=self.device)
         self.hand_down_euler = torch.zeros((self.num_envs, 3), dtype=torch.float32, device=self.device)
+
         while True:
             n_bad = bad_envs.shape[0]
 
@@ -743,6 +744,9 @@ class FactoryEnv(DirectRLEnv):
             # (c) iterative IK Method
             self.ctrl_target_fingertip_midpoint_pos[bad_envs, ...] = above_fixed_pos[bad_envs, ...]
             self.ctrl_target_fingertip_midpoint_quat[bad_envs, ...] = hand_down_quat[bad_envs, :]
+
+
+            print(f"final pose: {self.fingertip_midpoint_pos}")
 
             pos_error, aa_error = self.set_pos_inverse_kinematics(env_ids=bad_envs)
             pos_error = torch.linalg.norm(pos_error, dim=1) > 1e-3

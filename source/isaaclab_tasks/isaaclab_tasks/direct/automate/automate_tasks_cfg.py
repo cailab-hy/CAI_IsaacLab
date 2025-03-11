@@ -153,8 +153,8 @@ class Socket(FixedAssetCfg):
 @configclass
 class PlugInsert(AutomateTask):
     name = "plug_insert"
-    fixed_asset_cfg = Socket()
-    held_asset_cfg = Plug_00004()
+    fixed_asset_cfg = Socket_00117()
+    held_asset_cfg = Plug_00117()
     asset_size = 8.0
     duration_s = 10.0
 

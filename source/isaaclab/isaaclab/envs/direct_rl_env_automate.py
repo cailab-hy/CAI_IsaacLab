@@ -352,7 +352,7 @@ class DirectRLEnvAutomate(gym.Env):
 
         self.reset_terminated[:], self.reset_time_outs[:] = self._get_dones()
         self.reset_buf = self.reset_terminated | self.reset_time_outs
-        self.reward_buf = self._get_rewards()
+        #self.reward_buf = self._get_rewards()
 
         # -- reset envs that terminated/timed-out and log the episode information
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -379,7 +379,7 @@ class DirectRLEnvAutomate(gym.Env):
             self.obs_buf["policy"] = self._observation_noise_model.apply(self.obs_buf["policy"])
 
         # return observations, rewards, resets and extras
-        return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
+        return self.obs_buf, self.reset_terminated, self.reset_time_outs, self.extras # self.reward_buf,
 
     @staticmethod
     def seed(seed: int = -1) -> int:
@@ -640,6 +640,7 @@ class DirectRLEnvAutomate(gym.Env):
         """
         return None  # noqa: R501
 
+    '''
     @abstractmethod
     def _get_rewards(self) -> torch.Tensor:
         """Compute and return the rewards for the environment.
@@ -648,6 +649,7 @@ class DirectRLEnvAutomate(gym.Env):
             The rewards for the environment. Shape is (num_envs,).
         """
         raise NotImplementedError(f"Please implement the '_get_rewards' method for {self.__class__.__name__}.")
+    '''
 
     @abstractmethod
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:

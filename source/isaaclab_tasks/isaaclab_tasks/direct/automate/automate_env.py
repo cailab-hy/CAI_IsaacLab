@@ -19,6 +19,13 @@ from isaaclab.utils.math import axis_angle_from_quat
 from . import automate_control as fc
 from .automate_env_cfg import OBS_DIM_CFG, STATE_DIM_CFG, AutomateEnvCfg
 
+# --- Lib for Automate ---------------------------add by hong
+import os
+import json
+
+import isaaclab_tasks.direct.automate.automate_algo_utils as automate_algo
+from soft_dtw_cuda import SoftDTW
+# -------------------------------------------------------
 
 class AutomateEnv(DirectRLEnv):
     cfg: AutomateEnvCfg
@@ -33,8 +40,27 @@ class AutomateEnv(DirectRLEnv):
 
         super().__init__(cfg, render_mode, **kwargs)
 
+        # --- Variable for Automate --------------------------------------------add by hong
+        # Get Asset ID
+        self.asset_ID = "asset_00117"
+
+        '''
+        # Get disassembly distances
+        base_dir = os.path.abspath(os.path.join(os.getcwd(), "..", ".."))  # 'CAI' 디렉터리 경로로 올라가기
+        self.data_dir = os.path.join(base_dir, "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data")
+        '''
+
+        self.data_dir = "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data"
+
+        self.disassembly_dist_file = "disassembly_dist.json"
+        self.plug_grasp_file = "plug_grasps.json"
+        self.plug_grasps, self.disassembly_dists = self._load_assembly_info()
+        self.curriculum_height_bound, self.curriculum_height_step = self._get_curriculum_info(self.disassembly_dists)
+        #--------------------------------------------------------------------------------
+
         self._set_body_inertias()
         self._init_tensors()
+        self._load_disassembly_data()
         self._set_default_dynamics_parameters()
         self._compute_intermediate_values(dt=self.physics_dt)
 
@@ -147,6 +173,58 @@ class AutomateEnv(DirectRLEnv):
 
         self.ep_succeeded = torch.zeros((self.num_envs,), dtype=torch.long, device=self.device)
         self.ep_success_times = torch.zeros((self.num_envs,), dtype=torch.long, device=self.device)
+
+
+    # --- New function for Automate ----------------------add by hong
+    def _load_assembly_info(self):
+        """Load grasp pose and disassembly distance for plugs in each environment."""
+        
+        plug_grasp_path = os.path.join(self.data_dir, self.plug_grasp_file)
+        disassembly_dist_path = os.path.join(self.data_dir, self.disassembly_dist_file)
+
+        with open(plug_grasp_path, "r") as in_file:
+            plug_grasp_dict = json.load(in_file)
+        plug_grasps = [plug_grasp_dict[self.asset_ID] for i in range(self.num_envs)]
+
+        with open(disassembly_dist_path, "r") as in_file:
+            disassembly_dist_dict = json.load(in_file)
+        disassembly_dists = [disassembly_dist_dict[self.asset_ID] for i in range(self.num_envs)] 
+
+        return torch.as_tensor(plug_grasps).to(self.device), torch.as_tensor(disassembly_dists).to(self.device)
+
+    def _get_curriculum_info(self, disassembly_dists):
+        """Calculate the ranges and step sizes for Sampling-based Curriculum (SBC) in each environment."""
+
+        curriculum_height_bound = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)
+        curriculum_height_step = torch.zeros((self.num_envs, 2), dtype=torch.float32, device=self.device)
+
+        curriculum_height_bound[:, 1] = disassembly_dists + 0.01
+
+        curriculum_height_step[:, 0] = curriculum_height_bound[:, 1] / 10
+        curriculum_height_step[:, 1] = - curriculum_height_step[:, 0] / 2.0
+
+        return curriculum_height_bound, curriculum_height_step
+
+    def _load_disassembly_data(self):
+        """Load pre-collected disassembly trajectories (end-effector position only)."""
+
+        # load disassembly data from json file
+        log_filename = os.path.join(os.getcwd(), self.data_dir, self.asset_ID + '_disassembly_traj.json')
+        
+        disassembly_traj = json.load(open(log_filename))
+
+        eef_pos_traj = []
+
+        for i in range(len(disassembly_traj)):
+            curr_ee_traj = np.asarray(disassembly_traj[i]['fingertip_midpoint_pos']).reshape((-1, 3))
+            curr_ee_goal = np.asarray(disassembly_traj[i]['fingertip_midpoint_pos']).reshape((-1, 3))[0,:]
+            
+            # offset each trajectory to be relative to the goal
+            eef_pos_traj.append(curr_ee_traj-curr_ee_goal)
+
+        self.eef_pos_traj = torch.tensor(eef_pos_traj, dtype=torch.float32, device=self.device).squeeze()
+    # --- New function for Automate --------------------------------------
+
 
     def _get_keypoint_offsets(self, num_keypoints):
         """Get uniformly-spaced keypoints along a line of unit length, centered at 0."""
@@ -299,7 +377,7 @@ class AutomateEnv(DirectRLEnv):
         self.actions = (
             self.cfg.ctrl.ema_factor * action.clone().to(self.device) + (1 - self.cfg.ctrl.ema_factor) * self.actions
         )
-
+    
     def close_gripper_in_place(self):
         """Keep gripper in current position as gripper closes."""
         actions = torch.zeros((self.num_envs, 6), device=self.device)
@@ -424,7 +502,7 @@ class AutomateEnv(DirectRLEnv):
         self._compute_intermediate_values(dt=self.physics_dt)
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         return time_out, time_out
-
+    
     def _get_curr_successes(self, success_threshold, check_rot=False):
         """Get success mask at current timestep."""
         curr_successes = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
@@ -436,6 +514,7 @@ class AutomateEnv(DirectRLEnv):
         # Height threshold to target
         fixed_cfg = self.cfg_task.fixed_asset_cfg
         if self.cfg_task.name == "plug_insert" or self.cfg_task.name == "gear_mesh":
+            #height_threshold = self.disassembly_dists * 0.04
             height_threshold = fixed_cfg.height * success_threshold
         elif self.cfg_task.name == "nut_thread":
             height_threshold = fixed_cfg.thread_pitch * success_threshold
@@ -444,7 +523,19 @@ class AutomateEnv(DirectRLEnv):
         is_close_or_below = torch.where(
             z_disp < height_threshold, torch.ones_like(curr_successes), torch.zeros_like(curr_successes)
         )
-        curr_successes = torch.logical_and(is_centered, is_close_or_below)
+        # --- New function for Automate ---------------------------------add by hong
+        is_plug_inserted_in_socket = automate_algo.check_plug_inserted_in_socket(
+                                                                                plug_pos=self.held_pos,
+                                                                                socket_pos=self.fixed_pos,
+                                                                                curriculum_bound=self.curriculum_height_bound,
+                                                                                keypoints_plug=self.keypoints_held,
+                                                                                keypoints_socket=self.keypoints_fixed,
+                                                                                cfg_task=self.cfg_task,
+                                                                                episode_length_buf=self.episode_length_buf.clone().detach(),
+                                                                            )
+
+        curr_successes = torch.logical_and(is_centered, is_plug_inserted_in_socket)
+        # --- New function for Automate --------------------------------------
 
         if check_rot:
             is_rotated = self.curr_yaw < self.cfg_task.ee_success_yaw
@@ -485,6 +576,29 @@ class AutomateEnv(DirectRLEnv):
         """Compute reward at current timestep."""
         rew_dict = {}
 
+        #----------Automate------------------add by hong
+        # Create criterion for dynamic time warping (later used for imitation reward)
+        self.soft_dtw_criterion = SoftDTW(use_cuda=True, gamma=0.01)
+
+        # Imitation Reward: Calculate reward
+        curr_eef_pos = self.fixed_pos_action_frame - self.ctrl_target_fingertip_midpoint_pos # relative position instead of absolute position
+        
+        prev_fingertip_centered_pos = (self.fixed_pos_action_frame-self.ctrl_target_fingertip_midpoint_pos).unsqueeze(1) # (num_envs, 1, 3)
+        self.prev_fingertip_centered_pos = torch.repeat_interleave(prev_fingertip_centered_pos, 10, dim=1)
+
+        imitation_rwd = automate_algo.get_imitation_reward_from_dtw(self.eef_pos_traj, 
+                                                                    curr_eef_pos, 
+                                                                    self.prev_fingertip_centered_pos,
+                                                                    self.soft_dtw_criterion, 
+                                                                    device=self.device) 
+
+        # Imitation Reward: Update end-effector trajectory window 
+        self.prev_fingertip_centered_pos = torch.cat((self.prev_fingertip_centered_pos[:, 1:, :], curr_eef_pos.unsqueeze(1).clone().detach()), dim=1)        
+
+        # Only count reward that falls in the demonstration funnel
+        reward_mask = automate_algo.get_reward_mask(self.eef_pos_traj, curr_eef_pos, 0.01)
+        #------------------------------------
+
         # Keypoint rewards.
         def squashing_fn(x, a, b):
             return 1 / (torch.exp(a * x) + b + torch.exp(-a * x))
@@ -504,17 +618,29 @@ class AutomateEnv(DirectRLEnv):
         rew_dict["curr_engaged"] = (
             self._get_curr_successes(success_threshold=self.cfg_task.engage_threshold, check_rot=False).clone().float()
         )
-        rew_dict["curr_successes"] = curr_successes.clone().float()
+        #rew_dict["curr_successes"] = curr_successes.clone().float()
+
+        #---------------Automate---------------add by hong
+        z_disp = self.held_base_pos[:, 2] - self.target_held_base_pos[:, 2]
+        new_reward = torch.exp(-5 * (z_disp / self.disassembly_dists))
+
+        rew_dict["curr_successes"] = new_reward
+        #---------------Automate---------------
 
         rew_buf = (
-            rew_dict["kp_coarse"]
+            rew_dict["kp_coarse"] * 0.5
             + rew_dict["kp_baseline"]
-            + rew_dict["kp_fine"]
+            + rew_dict["kp_fine"] * 1.5
             - rew_dict["action_penalty"] * self.cfg_task.action_penalty_scale
             - rew_dict["action_grad_penalty"] * self.cfg_task.action_grad_penalty_scale
             + rew_dict["curr_engaged"]
             + rew_dict["curr_successes"]
         )
+
+        # Imitation Reward: Apply reward
+        rew_buf[:] += 1.0 * imitation_rwd
+
+        rew_buf[:] *= reward_mask
 
         for rew_name, rew in rew_dict.items():
             self.extras[f"logs_rew_{rew_name}"] = rew.mean()
@@ -697,7 +823,7 @@ class AutomateEnv(DirectRLEnv):
         # For example, the tip of the bolt can be used as the observation frame
         fixed_tip_pos_local = torch.zeros_like(self.fixed_pos)
         fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.height
-        fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.base_height
+        fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.base_height + 0.05
         if self.cfg_task.name == "gear_mesh":
             fixed_tip_pos_local[:, 0] = self._get_target_gear_base_offset()[0]
 
@@ -724,7 +850,7 @@ class AutomateEnv(DirectRLEnv):
             hand_init_pos_rand = torch.tensor(self.cfg_task.hand_init_pos_noise, device=self.device)
             above_fixed_pos_rand = above_fixed_pos_rand @ torch.diag(hand_init_pos_rand)
             above_fixed_pos[bad_envs] += above_fixed_pos_rand
-
+            
             # (b) get random orientation facing down
             hand_down_euler = (
                 torch.tensor(self.cfg_task.hand_init_orn, device=self.device).unsqueeze(0).repeat(n_bad, 1)
@@ -739,7 +865,7 @@ class AutomateEnv(DirectRLEnv):
             hand_down_quat[bad_envs, :] = torch_utils.quat_from_euler_xyz(
                 roll=hand_down_euler[:, 0], pitch=hand_down_euler[:, 1], yaw=hand_down_euler[:, 2]
             )
-
+            
             # (c) iterative IK Method
             self.ctrl_target_fingertip_midpoint_pos[bad_envs, ...] = above_fixed_pos[bad_envs, ...]
             self.ctrl_target_fingertip_midpoint_quat[bad_envs, ...] = hand_down_quat[bad_envs, :]
