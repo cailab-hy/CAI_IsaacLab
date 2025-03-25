@@ -494,7 +494,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         target_euler_xyz[:, 1] = 0.0
         
         # For Disassembly (Adding rot noise) (EDIT BY JS)
-        target_euler_xyz[:, 0:3] += self.gripper_pos_noise
+        target_euler_xyz[:, 0:3] += self.gripper_rot_noise
 
         self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_from_euler_xyz(
             roll=target_euler_xyz[:, 0], pitch=target_euler_xyz[:, 1], yaw=target_euler_xyz[:, 2]
