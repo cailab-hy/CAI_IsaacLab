@@ -49,6 +49,7 @@ from .direct_marl_env_cfg import DirectMARLEnvCfg
 from .direct_rl_env import DirectRLEnv
 from .direct_rl_env_automate import DirectRLEnvAutomate
 from .direct_rl_env_cfg import DirectRLEnvCfg
+from .direct_rl_env_automate_cfg import DirectRLEnvAutomateCfg
 from .manager_based_env import ManagerBasedEnv
 from .manager_based_env_cfg import ManagerBasedEnvCfg
 from .manager_based_rl_env import ManagerBasedRLEnv
