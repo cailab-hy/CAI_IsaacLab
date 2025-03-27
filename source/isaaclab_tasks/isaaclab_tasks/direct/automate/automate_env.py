@@ -42,7 +42,7 @@ class AutomateEnv(DirectRLEnv):
 
         # --- Variable for Automate --------------------------------------------add by hong
         # Get Asset ID
-        self.asset_ID = "asset_00117"
+        self.asset_ID = "asset_00196"
 
         '''
         # Get disassembly distances

@@ -3,19 +3,6 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-'''
-[Workspace for Autonomous Manipulation Team (CAI LAB)]
-
-1. Please clarify what you would like to annotate on the modified code line.
-✪✪✪ Comment description (By Name) ✪✪✪
-
-'''
-
-# --- Lib for Automate ----------------------------------
-import os
-import json
-# -------------------------------------------------------
-
 import numpy as np
 import torch
 
@@ -24,24 +11,24 @@ import isaacsim.core.utils.torch as torch_utils
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
-
-# --- Tuning DirectRLEnv for Automate ------------------
+# from isaaclab.envs import DirectRLEnv
 from isaaclab.envs import DirectRLEnvAutomate
-# ------------------------------------------------------
-
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import axis_angle_from_quat
 
 from . import automate_control as fc
-from .automate_env_cfg import OBS_DIM_CFG, STATE_DIM_CFG, AutomateEnvCfg
+from .automate_env_disassembly_cfg import OBS_DIM_CFG, STATE_DIM_CFG, AutomateEnvDisassemblyCfg
 
+# for load json data
+import json
+import os
 
 class AutomateEnvDisassembly(DirectRLEnvAutomate):
-    cfg: AutomateEnvCfg
+    cfg: AutomateEnvDisassemblyCfg
 
-    def __init__(self, cfg: AutomateEnvCfg, render_mode: str | None = None, **kwargs):
-            # Update number of obs/states
+    def __init__(self, cfg: AutomateEnvDisassemblyCfg, render_mode: str | None = None, **kwargs):
+        # Update number of obs/states
         cfg.observation_space = sum([OBS_DIM_CFG[obs] for obs in cfg.obs_order])
         cfg.state_space = sum([STATE_DIM_CFG[state] for state in cfg.state_order])
         cfg.observation_space += cfg.action_space
@@ -50,15 +37,16 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
         super().__init__(cfg, render_mode, **kwargs)
 
-        # --- Variable for Automate ---------------------------------------------------------------------------
-        # Get Asset ID
+        # tmp
         self.asset_ID = "asset_00117"
-
-        # Get disassembly distances
         self.data_dir = "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data"
+        self.save_data = "asset_00117_disassembly_traj.json"
         self.disassembly_dist_file = "disassembly_dist.json"
+
+        # load disassembly distances
         self.disassembly_dists = self._load_assembly_info()
 
+        # initialized logging variables for disassembly paths
         self._init_log_data_per_assembly()
 
         self._set_body_inertias()
@@ -66,9 +54,26 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self._set_default_dynamics_parameters()
         self._compute_intermediate_values(dt=self.physics_dt)
 
+    def _load_assembly_info(self):
+        """Load disassembly distance for plugs in each environment."""
+        disassembly_dists = []
+        disassembly_dist_path = os.path.join(os.getcwd(), self.data_dir, self.disassembly_dist_file)
+
+        if os.path.exists(disassembly_dist_path):
+            in_file = open(disassembly_dist_path, "r")
+            disassembly_dist_dict = json.load(in_file)
+
+            # Need to Edit (Add By Seunghwan Yu)
+            disassembly_dists = [disassembly_dist_dict[self.asset_ID] for i in range(self.num_envs)]
+            # (Gym's AutoMate version) TODO Modify the Method for Retrieving the Part Number
+            # disassembly_dists = [ disassembly_dist_dict[self.cfg_env.env.desired_subassemblies[self.asset_indices[i]]] for i in range(self.num_envs)]
+        else:
+            raise FileNotFoundError(f"{disassembly_dist_path} does not exist.")
+
+        return torch.as_tensor(disassembly_dists).to(self.device)
+
     def _set_body_inertias(self):
         """Note: this is to account for the asset_options.armature parameter in IGE."""
-
         inertias = self._robot.root_physx_view.get_inertias()
         offset = torch.zeros_like(inertias)
         offset[:, :, [0, 4, 8]] += 0.01
@@ -77,7 +82,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def _set_default_dynamics_parameters(self):
         """Set parameters defining dynamic interactions."""
-
         self.default_gains = torch.tensor(self.cfg.ctrl.default_task_prop_gains, device=self.device).repeat(
             (self.num_envs, 1)
         )
@@ -96,7 +100,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def _set_friction(self, asset, value):
         """Update material properties for a given asset."""
-
         materials = asset.root_physx_view.get_material_properties()
         materials[..., 0] = value  # Static friction.
         materials[..., 1] = value  # Dynamic friction.
@@ -105,7 +108,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def _init_tensors(self):
         """Initialize tensors once."""
-
         self.identity_quat = (
             torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
         )
@@ -122,7 +124,16 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
         # Held asset
         held_base_x_offset = 0.0
-        held_base_z_offset = 0.0
+        if self.cfg_task.name == "plug_insert":
+            held_base_z_offset = 0.0
+        elif self.cfg_task.name == "gear_mesh":
+            gear_base_offset = self._get_target_gear_base_offset()
+            held_base_x_offset = gear_base_offset[0]
+            held_base_z_offset = gear_base_offset[2]
+        elif self.cfg_task.name == "nut_thread":
+            held_base_z_offset = self.cfg_task.fixed_asset_cfg.base_height
+        else:
+            raise NotImplementedError("Task not implemented")
 
         self.held_base_pos_local = torch.tensor([0.0, 0.0, 0.0], device=self.device).repeat((self.num_envs, 1))
         self.held_base_pos_local[:, 0] = held_base_x_offset
@@ -156,6 +167,15 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.fixed_success_pos_local = torch.zeros((self.num_envs, 3), device=self.device)
         if self.cfg_task.name == "plug_insert":
             self.fixed_success_pos_local[:, 2] = 0.0
+        elif self.cfg_task.name == "gear_mesh":
+            gear_base_offset = self._get_target_gear_base_offset()
+            self.fixed_success_pos_local[:, 0] = gear_base_offset[0]
+            self.fixed_success_pos_local[:, 2] = gear_base_offset[2]
+        elif self.cfg_task.name == "nut_thread":
+            head_height = self.cfg_task.fixed_asset_cfg.base_height
+            shank_length = self.cfg_task.fixed_asset_cfg.height
+            thread_pitch = self.cfg_task.fixed_asset_cfg.thread_pitch
+            self.fixed_success_pos_local[:, 2] = head_height + shank_length - thread_pitch * 1.5
         else:
             raise NotImplementedError("Task not implemented")
 
@@ -164,7 +184,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def _get_keypoint_offsets(self, num_keypoints):
         """Get uniformly-spaced keypoints along a line of unit length, centered at 0."""
-
         keypoint_offsets = torch.zeros((num_keypoints, 3), device=self.device)
         keypoint_offsets[:, -1] = torch.linspace(0.0, 1.0, num_keypoints, device=self.device) - 0.5
 
@@ -172,8 +191,11 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def _setup_scene(self):
         """Initialize simulation scene."""
-
-        spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -0.4))
+        # old
+        # spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -0.4))
+        
+        # new 
+        spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.05))
 
         # spawn a usd file of a table into the scene
         cfg = sim_utils.UsdFileCfg(usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Mounts/SeattleLabTable/table_instanceable.usd")
@@ -189,7 +211,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             self._large_gear_asset = Articulation(self.cfg_task.large_gear_cfg)
 
         self.scene.clone_environments(copy_from_source=False)
-        self.scene.filter_collisions()
 
         self.scene.articulations["robot"] = self._robot
         self.scene.articulations["fixed_asset"] = self._fixed_asset
@@ -201,10 +222,9 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
-    
+
     def _compute_intermediate_values(self, dt):
         """Get values computed from raw tensors. This includes adding noise."""
-
         # TODO: A lot of these can probably only be set once?
         self.fixed_pos = self._fixed_asset.data.root_pos_w - self.scene.env_origins
         self.fixed_quat = self._fixed_asset.data.root_quat_w
@@ -222,7 +242,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.left_finger_jacobian = jacobians[:, self.left_finger_body_idx - 1, 0:6, 0:7]
         self.right_finger_jacobian = jacobians[:, self.right_finger_body_idx - 1, 0:6, 0:7]
         self.fingertip_midpoint_jacobian = (self.left_finger_jacobian + self.right_finger_jacobian) * 0.5
-        # self.arm_mass_matrix = self._robot.root_physx_view.get_mass_matrices()[:, 0:7, 0:7]
         self.arm_mass_matrix = self._robot.root_physx_view.get_generalized_mass_matrices()[:, 0:7, 0:7]
         self.joint_pos = self._robot.data.joint_pos.clone()
         self.joint_vel = self._robot.data.joint_vel.clone()
@@ -244,11 +263,31 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.joint_vel_fd = joint_diff / dt
         self.prev_joint_pos = self.joint_pos[:, 0:7].clone()
 
+        # Keypoint tensors.
+        self.held_base_quat[:], self.held_base_pos[:] = torch_utils.tf_combine(
+            self.held_quat, self.held_pos, self.held_base_quat_local, self.held_base_pos_local
+        )
+        self.target_held_base_quat[:], self.target_held_base_pos[:] = torch_utils.tf_combine(
+            self.fixed_quat, self.fixed_pos, self.identity_quat, self.fixed_success_pos_local
+        )
+
+        # Compute pos of keypoints on held asset, and fixed asset in world frame
+        for idx, keypoint_offset in enumerate(self.keypoint_offsets):
+            self.keypoints_held[:, idx] = torch_utils.tf_combine(
+                self.held_base_quat, self.held_base_pos, self.identity_quat, keypoint_offset.repeat(self.num_envs, 1)
+            )[1]
+            self.keypoints_fixed[:, idx] = torch_utils.tf_combine(
+                self.target_held_base_quat,
+                self.target_held_base_pos,
+                self.identity_quat,
+                keypoint_offset.repeat(self.num_envs, 1),
+            )[1]
+
+        self.keypoint_dist = torch.norm(self.keypoints_held - self.keypoints_fixed, p=2, dim=-1).mean(-1)
         self.last_update_timestamp = self._robot._data._sim_timestamp
-    
+
     def _get_observations(self):
         """Get actor/critic inputs using asymmetric critic."""
-
         noisy_fixed_pos = self.fixed_pos_obs_frame + self.init_fixed_pos_obs_noise
 
         prev_actions = self.actions.clone()
@@ -283,43 +322,20 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         obs_tensors = torch.cat(obs_tensors, dim=-1)
         state_tensors = [state_dict[state_name] for state_name in self.cfg.state_order + ["prev_actions"]]
         state_tensors = torch.cat(state_tensors, dim=-1)
-
         return {"policy": obs_tensors, "critic": state_tensors}
 
     def _reset_buffers(self, env_ids):
         """Reset buffers."""
-
         self.ep_succeeded[env_ids] = 0
 
     def _pre_physics_step(self, action):
         """Apply policy actions with smoothing."""
-
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(env_ids) > 0:
             self._reset_buffers(env_ids)
-
         self.actions = (
             self.cfg.ctrl.ema_factor * action.clone().to(self.device) + (1 - self.cfg.ctrl.ema_factor) * self.actions
         )
-
-    # --- New function for Automate --------------------------------------
-    def _post_physics_step(self, is_last_step=False):
-        """Post-process actions after stepping through the physics."""
-        
-        if is_last_step:
-            print(f"is_last_step: {is_last_step}...\n")
-            #self._apply_action2()
-            self._disassemble_plug_from_socket()
-            print(f"OK1")
-
-            # --- New function for Automate ----------
-            success_env_ids = self._disassemble_plug_from_socket()
-            self._log_robot_state(success_env_ids)
-            print(f"OK2")
-            self._save_log_traj()
-            print(f"OK3")
-            # ----------------------------------------
-    # --------------------------------------------------------------------
 
     def close_gripper_in_place(self):
         """Keep gripper in current position as gripper closes."""
@@ -357,9 +373,8 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.ctrl_target_gripper_dof_pos = ctrl_target_gripper_dof_pos
         self.generate_ctrl_signals()
 
-    def _apply_action(self): #made by hong
+    def _apply_action(self):
         """Apply actions for policy as delta targets from current position."""
-
         # Get current yaw for success checking.
         _, _, curr_yaw = torch_utils.get_euler_xyz(self.fingertip_midpoint_quat)
         self.curr_yaw = torch.where(curr_yaw > np.deg2rad(235), curr_yaw - 2 * np.pi, curr_yaw)
@@ -368,8 +383,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         # Check if we need to re-compute velocities within the decimation loop.
         if self.last_update_timestamp < self._robot._data._sim_timestamp:
             self._compute_intermediate_values(dt=self.physics_dt)
-
-        #print(f"[DEBUG] Before Applying Action - Held Position: {self.held_pos}")
 
         # Interpret actions as target pos displacements and set pos target
         pos_actions = self.actions[:, 0:3] * self.pos_threshold
@@ -380,19 +393,26 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             rot_actions[:, 2] = -(rot_actions[:, 2] + 1.0) * 0.5  # [-1, 0]
         rot_actions = rot_actions * self.rot_threshold
 
-        # move held asset to target
-        ctrl_tgt_pos = self.fingertip_midpoint_pos.clone()
-        ctrl_tgt_pos[:, 2] += self.disassembly_dists
-
         self.ctrl_target_fingertip_midpoint_pos = self.fingertip_midpoint_pos + pos_actions
-        #delta_pos = torch.abs(self.ctrl_target_fingertip_midpoint_pos - ctrl_tgt_pos)
-        delta_pos = self.ctrl_target_fingertip_midpoint_pos - ctrl_tgt_pos
+
+        # For Disassembly (EDIT BY JS)
+        self.ctrl_target_fingertip_midpoint_pos = self.gripper_start_pos[:,0:3]
+        self.ctrl_target_fingertip_midpoint_pos[:,2] += self.disassembly_dists * 3
+        set_ctrl_tgt_pos = torch.empty_like(self.ctrl_target_fingertip_midpoint_pos).copy_(self.ctrl_target_fingertip_midpoint_pos)
+
+        # To speed up learning, never allow the policy to move more than 5cm away from the base.
+        delta_pos = self.ctrl_target_fingertip_midpoint_pos - self.fixed_pos_action_frame
         pos_error_clipped = torch.clip(
             delta_pos, -self.cfg.ctrl.pos_action_bounds[0], self.cfg.ctrl.pos_action_bounds[1]
         )
-        self.ctrl_target_fingertip_midpoint_pos = ctrl_tgt_pos + pos_error_clipped
+        self.ctrl_target_fingertip_midpoint_pos = self.fixed_pos_action_frame + pos_error_clipped
 
-        #print(f"[DEBUG] After Applying Action - Target Position: {self.ctrl_target_fingertip_midpoint_pos}")
+        # For Disassembly, add_z_up must be less than 0.05 (EDIT BY JS)
+        delta_ctrl_tgt_pos = torch.empty_like(self.ctrl_target_fingertip_midpoint_pos).copy_(self.ctrl_target_fingertip_midpoint_pos)
+        add_ctrl_tgt_pos = set_ctrl_tgt_pos[:,2] - delta_ctrl_tgt_pos[:,2]
+        add_z_up = add_ctrl_tgt_pos[0].item()        
+        # self.ctrl_target_fingertip_midpoint_pos[:,2] += add_z_up # TODO
+        self.ctrl_target_fingertip_midpoint_pos[:,2] += 0.03 # tmp
 
         # Convert to quat and set rot target
         angle = torch.norm(rot_actions, p=2, dim=-1)
@@ -411,7 +431,73 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         target_euler_xyz[:, 1] = 0.0
 
         self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_from_euler_xyz(
-        roll=target_euler_xyz[:, 0], pitch=target_euler_xyz[:, 1], yaw=target_euler_xyz[:, 2]
+            roll=target_euler_xyz[:, 0], pitch=target_euler_xyz[:, 1], yaw=target_euler_xyz[:, 2]
+        )
+
+        self.ctrl_target_gripper_dof_pos = 0.0
+        self.generate_ctrl_signals()
+
+    def _apply_randomize_action(self):
+        """Apply random actions to get various disassembly paths as delta targets from current position for the policy."""        
+        # Get current yaw for success checking.
+        _, _, curr_yaw = torch_utils.get_euler_xyz(self.fingertip_midpoint_quat)
+        self.curr_yaw = torch.where(curr_yaw > np.deg2rad(235), curr_yaw - 2 * np.pi, curr_yaw)
+
+        # Note: We use finite-differenced velocities for control and observations.
+        # Check if we need to re-compute velocities within the decimation loop.
+        if self.last_update_timestamp < self._robot._data._sim_timestamp:
+            self._compute_intermediate_values(dt=self.physics_dt)
+
+        # Interpret actions as target pos displacements and set pos target
+        pos_actions = self.actions[:, 0:3] * self.pos_threshold
+
+        # Interpret actions as target rot (axis-angle) displacements
+        rot_actions = self.actions[:, 3:6]
+        if self.cfg_task.unidirectional_rot:
+            rot_actions[:, 2] = -(rot_actions[:, 2] + 1.0) * 0.5  # [-1, 0]
+        rot_actions = rot_actions * self.rot_threshold
+
+        self.ctrl_target_fingertip_midpoint_pos = self.fingertip_midpoint_pos + pos_actions
+
+        # For Disassembly (Adding pos noise) (EDIT BY JS)
+        ctrl_tgt_pos = torch.empty_like(self.ctrl_target_fingertip_midpoint_pos).copy_(self.ctrl_target_fingertip_midpoint_pos)
+        # ctrl_tgt_pos[:, 2] += self.cfg_task.randomize.gripper_rand_z_offset # TODO
+        ctrl_tgt_pos[:, 2] += 0.5
+        ctrl_tgt_pos[self.env_ids] += self.gripper_pos_noise
+        self.ctrl_target_fingertip_midpoint_pos = ctrl_tgt_pos[:,0:3]
+
+        # To speed up learning, never allow the policy to move more than 5cm away from the base.
+        delta_pos = self.ctrl_target_fingertip_midpoint_pos - self.fixed_pos_action_frame
+        pos_error_clipped = torch.clip(
+            delta_pos, -self.cfg.ctrl.pos_action_bounds[0], self.cfg.ctrl.pos_action_bounds[1]
+        )
+        self.ctrl_target_fingertip_midpoint_pos = self.fixed_pos_action_frame + pos_error_clipped
+
+        # For Disassembly (EDIT BY JS)
+        # self.ctrl_target_fingertip_midpoint_pos[:,2] += 0.05
+        self.ctrl_target_fingertip_midpoint_pos[:,2] = 0.30
+
+        # Convert to quat and set rot target
+        angle = torch.norm(rot_actions, p=2, dim=-1)
+        axis = rot_actions / angle.unsqueeze(-1)
+
+        rot_actions_quat = torch_utils.quat_from_angle_axis(angle, axis)
+        rot_actions_quat = torch.where(
+            angle.unsqueeze(-1).repeat(1, 4) > 1e-6,
+            rot_actions_quat,
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).repeat(self.num_envs, 1),
+        )
+        self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_mul(rot_actions_quat, self.fingertip_midpoint_quat)
+
+        target_euler_xyz = torch.stack(torch_utils.get_euler_xyz(self.ctrl_target_fingertip_midpoint_quat), dim=1)
+        target_euler_xyz[:, 0] = 3.14159  # Restrict actions to be upright.
+        target_euler_xyz[:, 1] = 0.0
+        
+        # For Disassembly (Adding rot noise) (EDIT BY JS)
+        target_euler_xyz[:, 0:3] += self.gripper_rot_noise
+
+        self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_from_euler_xyz(
+            roll=target_euler_xyz[:, 0], pitch=target_euler_xyz[:, 1], yaw=target_euler_xyz[:, 2]
         )
 
         self.ctrl_target_gripper_dof_pos = 0.0
@@ -419,14 +505,12 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def _set_gains(self, prop_gains, rot_deriv_scale=1.0):
         """Set robot gains using critical damping."""
-
         self.task_prop_gains = prop_gains
         self.task_deriv_gains = 2 * torch.sqrt(prop_gains)
         self.task_deriv_gains[:, 3:6] /= rot_deriv_scale
 
     def generate_ctrl_signals(self):
         """Get Jacobian. Set Franka DOF position targets (fingers) or DOF torques (arm)."""
-
         self.joint_torque, self.applied_wrench = fc.compute_dof_torque(
             cfg=self.cfg,
             dof_pos=self.joint_pos,
@@ -453,23 +537,108 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def _get_dones(self):
         """Update intermediate values used for rewards and observations."""
-
         self._compute_intermediate_values(dt=self.physics_dt)
-
-        # ✪✪✪ Temporary fix for code testing (By Seunghwan Yu) ✪✪✪
-        time_out = self.episode_length_buf >=  70 #self.max_episode_length - 1 
+        # time_out = self.episode_length_buf >= self.max_episode_length - 1 # isaaclab Factory
+        # time_out = self.episode_length_buf >=  70 # isaacgym AutoMate
+        time_out = self.episode_length_buf >=  32
 
         return time_out, time_out
 
-    # --- New function for AutoMate -------------------------------------------------
-    def _is_last_step(self):
-        """A function to check if the current step is the last step in the current episode."""
+    def _get_curr_successes(self, success_threshold, check_rot=False):
+        """Get success mask at current timestep."""
+        curr_successes = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
 
-        # ✪✪✪ Temporary fix for code testing (By Seunghwan Yu) ✪✪✪
-        is_last_step = self.episode_length_buf == 49 #self.max_episode_length - 1
+        xy_dist = torch.linalg.vector_norm(self.target_held_base_pos[:, 0:2] - self.held_base_pos[:, 0:2], dim=1)
+        z_disp = self.held_base_pos[:, 2] - self.target_held_base_pos[:, 2]
 
-        return is_last_step[0]
-    # -------------------------------------------------------------------------------
+        is_centered = torch.where(xy_dist < 0.0025, torch.ones_like(curr_successes), torch.zeros_like(curr_successes))
+        # Height threshold to target
+        fixed_cfg = self.cfg_task.fixed_asset_cfg
+        if self.cfg_task.name == "plug_insert" or self.cfg_task.name == "gear_mesh":
+            height_threshold = fixed_cfg.height * success_threshold
+        elif self.cfg_task.name == "nut_thread":
+            height_threshold = fixed_cfg.thread_pitch * success_threshold
+        else:
+            raise NotImplementedError("Task not implemented")
+        is_close_or_below = torch.where(
+            z_disp < height_threshold, torch.ones_like(curr_successes), torch.zeros_like(curr_successes)
+        )
+        curr_successes = torch.logical_and(is_centered, is_close_or_below)
+
+        if check_rot:
+            is_rotated = self.curr_yaw < self.cfg_task.ee_success_yaw
+            curr_successes = torch.logical_and(curr_successes, is_rotated)
+
+        return curr_successes
+
+    def _get_rewards(self):
+        """Update rewards and compute success statistics."""
+        # Get successful and failed envs at current timestep
+        check_rot = self.cfg_task.name == "nut_thread"
+        curr_successes = self._get_curr_successes(
+            success_threshold=self.cfg_task.success_threshold, check_rot=check_rot
+        )
+
+        rew_buf = self._update_rew_buf(curr_successes)
+
+        # Only log episode success rates at the end of an episode.
+        if torch.any(self.reset_buf):
+            self.extras["successes"] = torch.count_nonzero(curr_successes) / self.num_envs
+
+        # Get the time at which an episode first succeeds.
+        first_success = torch.logical_and(curr_successes, torch.logical_not(self.ep_succeeded))
+        self.ep_succeeded[curr_successes] = 1
+
+        first_success_ids = first_success.nonzero(as_tuple=False).squeeze(-1)
+        self.ep_success_times[first_success_ids] = self.episode_length_buf[first_success_ids]
+        nonzero_success_ids = self.ep_success_times.nonzero(as_tuple=False).squeeze(-1)
+
+        if len(nonzero_success_ids) > 0:  # Only log for successful episodes.
+            success_times = self.ep_success_times[nonzero_success_ids].sum() / len(nonzero_success_ids)
+            self.extras["success_times"] = success_times
+
+        self.prev_actions = self.actions.clone()
+        return rew_buf
+
+    def _update_rew_buf(self, curr_successes):
+        """Compute reward at current timestep."""
+        rew_dict = {}
+
+        # Keypoint rewards.
+        def squashing_fn(x, a, b):
+            return 1 / (torch.exp(a * x) + b + torch.exp(-a * x))
+
+        a0, b0 = self.cfg_task.keypoint_coef_baseline
+        rew_dict["kp_baseline"] = squashing_fn(self.keypoint_dist, a0, b0)
+        # a1, b1 = 25, 2
+        a1, b1 = self.cfg_task.keypoint_coef_coarse
+        rew_dict["kp_coarse"] = squashing_fn(self.keypoint_dist, a1, b1)
+        a2, b2 = self.cfg_task.keypoint_coef_fine
+        # a2, b2 = 300, 0
+        rew_dict["kp_fine"] = squashing_fn(self.keypoint_dist, a2, b2)
+
+        # Action penalties.
+        rew_dict["action_penalty"] = torch.norm(self.actions, p=2)
+        rew_dict["action_grad_penalty"] = torch.norm(self.actions - self.prev_actions, p=2, dim=-1)
+        rew_dict["curr_engaged"] = (
+            self._get_curr_successes(success_threshold=self.cfg_task.engage_threshold, check_rot=False).clone().float()
+        )
+        rew_dict["curr_successes"] = curr_successes.clone().float()
+
+        rew_buf = (
+            rew_dict["kp_coarse"]
+            + rew_dict["kp_baseline"]
+            + rew_dict["kp_fine"]
+            - rew_dict["action_penalty"] * self.cfg_task.action_penalty_scale
+            - rew_dict["action_grad_penalty"] * self.cfg_task.action_grad_penalty_scale
+            + rew_dict["curr_engaged"]
+            + rew_dict["curr_successes"]
+        )
+
+        for rew_name, rew in rew_dict.items():
+            self.extras[f"logs_rew_{rew_name}"] = rew.mean()
+
+        return rew_buf
 
     def _reset_idx(self, env_ids):
         """
@@ -482,9 +651,36 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self._set_franka_to_default_pose(joints=self.cfg.ctrl.reset_joints, env_ids=env_ids)
         self.step_sim_no_action()
 
+        self.gripper_pos_noise, self.gripper_rot_noise = self._get_grasp_noise(env_ids)
+
         self.randomize_initial_state(env_ids)
-        print(f"OK")
+
         self._init_log_data_per_episode()
+
+    def _get_grasp_noise(self, env_ids):
+        """Add noise for random gripper poses"""
+        # tmp gripper noise parameter
+        gripper_rand_pos_noise = [0.05, 0.05, 0.05]
+        gripper_rand_rot_noise = [0.174533, 0.174533, 0.174533] # +-10 deg for roll/pitch/yaw 
+        
+        bad_envs = env_ids.clone()
+        n_bad = bad_envs.shape[0]
+
+        # get pos noise
+        rand_sample = torch.rand((n_bad, 3), dtype=torch.float32, device=self.device)
+        above_fixed_pos_rand = 2 * (rand_sample - 0.5)  # [-1, 1] 
+        hand_init_pos_rand = torch.tensor(gripper_rand_pos_noise, device=self.device)
+        above_fixed_pos_rand = above_fixed_pos_rand @ torch.diag(hand_init_pos_rand)
+
+        # get rot noise
+        rand_sample = torch.rand((n_bad, 3), dtype=torch.float32, device=self.device)
+        above_fixed_orn_noise = 2 * (rand_sample - 0.5)  # [-1, 1]
+
+        hand_init_orn_rand = torch.tensor(gripper_rand_rot_noise, device=self.device)
+        above_fixed_orn_noise = above_fixed_orn_noise @ torch.diag(hand_init_orn_rand)
+
+        return above_fixed_pos_rand, above_fixed_orn_noise
+
 
     def _set_assets_to_default_pose(self, env_ids):
         """Move assets to default pose before randomization."""
@@ -492,22 +688,20 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         fixed_state = self._fixed_asset.data.default_root_state.clone()[env_ids]
         fixed_state[:, 0:3] += self.scene.env_origins[env_ids]
         fixed_state[:, 7:] = 0.0
-        #fixed_state[:, 2] = 0.0     # ✪✪✪ Set the object's Z-axis height to 0. (By Seunghwan Yu) ✪✪✪
         self._fixed_asset.write_root_pose_to_sim(fixed_state[:, 0:7], env_ids=env_ids)
         self._fixed_asset.write_root_velocity_to_sim(fixed_state[:, 7:], env_ids=env_ids)
         self._fixed_asset.reset()
 
         held_state = self._held_asset.data.default_root_state.clone()[env_ids]
+        held_state[:, 0:2] = fixed_state[:, 0:2] # Apply fixed asset's x,y coordinates
         held_state[:, 0:3] += self.scene.env_origins[env_ids]
         held_state[:, 7:] = 0.0
-        #held_state[:, 2] = 0.005     # ✪✪✪ Set the object's Z-axis height to 0. (By Seunghwan Yu) ✪✪✪
         self._held_asset.write_root_pose_to_sim(held_state[:, 0:7], env_ids=env_ids)
         self._held_asset.write_root_velocity_to_sim(held_state[:, 7:], env_ids=env_ids)
         self._held_asset.reset()
 
     def set_pos_inverse_kinematics(self, env_ids):
         """Set robot joint position using DLS IK."""
-
         ik_time = 0.0
         while ik_time < 0.25:
             # Compute error to target.
@@ -533,11 +727,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             self.joint_vel[env_ids, :] = torch.zeros_like(self.joint_pos[env_ids,])
 
             self.ctrl_target_joint_pos[env_ids, 0:7] = self.joint_pos[env_ids, 0:7]
-            '''
-            if close_gripper:
-                self.ctrl_target_joint_pos[env_ids, 7:] = 0.0
-                self.ctrl_target_gripper_dof_pos = 0.0
-            '''
             # Update dof state.
             self._robot.write_joint_state_to_sim(self.joint_pos, self.joint_vel)
             self._robot.set_joint_position_target(self.ctrl_target_joint_pos)
@@ -550,30 +739,20 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def get_handheld_asset_relative_pose(self):
         """Get default relative pose between help asset and fingertip."""
-
         if self.cfg_task.name == "plug_insert":
             held_asset_relative_pos = torch.zeros_like(self.held_base_pos_local)
             held_asset_relative_pos[:, 2] = self.cfg_task.held_asset_cfg.height
             held_asset_relative_pos[:, 2] -= self.cfg_task.robot_cfg.franka_fingerpad_length
+
         else:
             raise NotImplementedError("Task not implemented")
 
         held_asset_relative_quat = self.identity_quat
-        if self.cfg_task.name == "nut_thread":
-            # Rotate along z-axis of frame for default position.
-            initial_rot_deg = self.cfg_task.held_asset_rot_init
-            rot_yaw_euler = torch.tensor([0.0, 0.0, initial_rot_deg * np.pi / 180.0], device=self.device).repeat(
-                self.num_envs, 1
-            )
-            held_asset_relative_quat = torch_utils.quat_from_euler_xyz(
-                roll=rot_yaw_euler[:, 0], pitch=rot_yaw_euler[:, 1], yaw=rot_yaw_euler[:, 2]
-            )
 
         return held_asset_relative_pos, held_asset_relative_quat
 
     def _set_franka_to_default_pose(self, joints, env_ids):
         """Return Franka to its default joint position."""
-
         gripper_width = self.cfg_task.held_asset_cfg.diameter / 2 * 1.25
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_pos[:, 7:] = gripper_width  # MIMIC
@@ -581,8 +760,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         joint_vel = torch.zeros_like(joint_pos)
         joint_effort = torch.zeros_like(joint_pos)
         self.ctrl_target_joint_pos[env_ids, :] = joint_pos
-        print(f"Resetting {len(env_ids)} envs...")
-
         self._robot.set_joint_position_target(self.ctrl_target_joint_pos[env_ids], env_ids=env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
         self._robot.reset()
@@ -592,7 +769,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def step_sim_no_action(self):
         """Step the simulation without an action. Used for resets."""
-
         self.scene.write_data_to_sim()
         self.sim.step(render=False)
         self.scene.update(dt=self.physics_dt)
@@ -600,14 +776,13 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
     def randomize_initial_state(self, env_ids):
         """Randomize initial state and perform any episode-level randomization."""
-
         # Disable gravity.
         physics_sim_view = sim_utils.SimulationContext.instance().physics_sim_view
         physics_sim_view.set_gravity(carb.Float3(0.0, 0.0, 0.0))
 
         # (1.) Randomize fixed asset pose.
         fixed_state = self._fixed_asset.data.default_root_state.clone()[env_ids]
-        
+
         # (1.a.) Position
         rand_sample = torch.rand((len(env_ids), 3), dtype=torch.float32, device=self.device)
         fixed_pos_init_rand = 2 * (rand_sample - 0.5)  # [-1, 1]
@@ -616,9 +791,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         )
         fixed_pos_init_rand = fixed_pos_init_rand @ torch.diag(fixed_asset_init_pos_rand)
         fixed_state[:, 0:3] += fixed_pos_init_rand + self.scene.env_origins[env_ids]
-        
-        # Set the object's height (z value) to 0. (add by SH)
-        # fixed_state[:, 2] = 0.0 
 
         # (1.b.) Orientation
         fixed_orn_init_yaw = np.deg2rad(self.cfg_task.fixed_asset_init_orn_deg)
@@ -655,13 +827,17 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         # Compute the frame on the bolt that would be used as observation: fixed_pos_obs_frame
         # For example, the tip of the bolt can be used as the observation frame
         fixed_tip_pos_local = torch.zeros_like(self.fixed_pos)
-        fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.height
-        fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.base_height
+        # fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.height
+        # fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.base_height
+        fixed_tip_pos_local[:, 2] += self.cfg_task.held_asset_cfg.height
+        fixed_tip_pos_local[:, 2] += self.cfg_task.held_asset_cfg.base_height
 
         _, fixed_tip_pos = torch_utils.tf_combine(
             self.fixed_quat, self.fixed_pos, self.identity_quat, fixed_tip_pos_local
         )
+        
         self.fixed_pos_obs_frame[:] = fixed_tip_pos
+        self.gripper_start_pos = fixed_tip_pos
 
         # (2) Move gripper to randomizes location above fixed asset. Keep trying until IK succeeds.
         # (a) get position vector to target
@@ -670,12 +846,10 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
         hand_down_quat = torch.zeros((self.num_envs, 4), dtype=torch.float32, device=self.device)
         self.hand_down_euler = torch.zeros((self.num_envs, 3), dtype=torch.float32, device=self.device)
-        
+
         while True:
             n_bad = bad_envs.shape[0]
-
             above_fixed_pos = fixed_tip_pos.clone()
-            above_fixed_pos[:, 2] += self.cfg_task.hand_init_pos[2]
 
             # (b) get random orientation facing down
             hand_down_euler = (
@@ -687,14 +861,15 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             hand_init_orn_rand = torch.tensor(self.cfg_task.hand_init_orn_noise, device=self.device)
             above_fixed_orn_noise = above_fixed_orn_noise @ torch.diag(hand_init_orn_rand)
             hand_down_euler += above_fixed_orn_noise
+            hand_down_euler[:, 0:2] = 0.0  # Only change yaw.
             self.hand_down_euler[bad_envs, ...] = hand_down_euler
             hand_down_quat[bad_envs, :] = torch_utils.quat_from_euler_xyz(
                 roll=hand_down_euler[:, 0], pitch=hand_down_euler[:, 1], yaw=hand_down_euler[:, 2]
             )
-
-            # (c) iterative IK Method
+            
+            # (c) iterative IK Method # check here
             self.ctrl_target_fingertip_midpoint_pos[bad_envs, ...] = above_fixed_pos[bad_envs, ...]
-            self.ctrl_target_fingertip_midpoint_quat[bad_envs, ...] = hand_down_quat[bad_envs, :]
+            # self.ctrl_target_fingertip_midpoint_quat[bad_envs, ...] = hand_down_quat[bad_envs, :] # TODO
 
             pos_error, aa_error = self.set_pos_inverse_kinematics(env_ids=bad_envs)
             pos_error = torch.linalg.norm(pos_error, dim=1) > 1e-3
@@ -706,55 +881,16 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             if bad_envs.shape[0] == 0:
                 break
 
-            self._set_franka_to_default_pose(
-                joints=[0.00871, -0.10368, -0.00794, -1.49139, -0.00083, 1.38774, 0.0], env_ids=bad_envs
-            )
+            # self._set_franka_to_default_pose(
+            #     joints=[0.00871, -0.10368, -0.00794, -1.49139, -0.00083, 1.38774, 0.0], env_ids=bad_envs
+            # )
 
             ik_attempt += 1
             print(f"IK Attempt: {ik_attempt}\tBad Envs: {bad_envs.shape[0]}")
 
         self.step_sim_no_action()
 
-        flip_z_quat = torch.tensor([0.0, 0.0, 1.0, 0.0], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-        fingertip_flipped_quat, fingertip_flipped_pos = torch_utils.tf_combine(
-            q1=self.fingertip_midpoint_quat,
-            t1=self.fingertip_midpoint_pos,
-            q2=flip_z_quat,
-            t2=torch.zeros_like(self.fingertip_midpoint_pos),
-        )
-
-        # get default gripper in asset transform
-        held_asset_relative_pos, held_asset_relative_quat = self.get_handheld_asset_relative_pose()
-
-        asset_in_hand_quat, asset_in_hand_pos = torch_utils.tf_inverse(
-            held_asset_relative_quat, held_asset_relative_pos
-        )
-
-        translated_fingertip_quat, translated_fingertip_pos = torch_utils.tf_combine(
-            q1=asset_in_hand_quat, t1=asset_in_hand_pos, q2=fingertip_flipped_quat, t2=fingertip_flipped_pos
-        )
-
-        rand_sample = torch.rand((self.num_envs, 3), dtype=torch.float32, device=self.device)
-        self.held_asset_pos_noise = 2 * (rand_sample - 0.5)  # [-1, 1]
-        held_asset_pos_noise = torch.tensor(self.cfg_task.held_asset_pos_noise, device=self.device)
-        self.held_asset_pos_noise = self.held_asset_pos_noise @ torch.diag(held_asset_pos_noise)
-
-        translated_fingertip_quat, translated_fingertip_pos = torch_utils.tf_combine(
-            q1=translated_fingertip_quat,
-            t1=translated_fingertip_pos,
-            q2=self.identity_quat,
-            t2=self.held_asset_pos_noise,
-        )
-
-        held_state = self._held_asset.data.default_root_state.clone()
-        held_state[:, 0:3] = translated_fingertip_pos + self.scene.env_origins
-        held_state[:, 3:7] = translated_fingertip_quat
-        held_state[:, 7:] = 0.0
-        self._held_asset.write_root_pose_to_sim(held_state[:, 0:7])
-        self._held_asset.write_root_velocity_to_sim(held_state[:, 7:])
-        self._held_asset.reset()
-        
-        # Close hand
+        #  Close hand
         # Set gains to use for quick resets.
         reset_task_prop_gains = torch.tensor(self.cfg.ctrl.reset_task_prop_gains, device=self.device).repeat(
             (self.num_envs, 1)
@@ -763,7 +899,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self._set_gains(reset_task_prop_gains, reset_rot_deriv_scale)
 
         self.step_sim_no_action()
-        
+
         grasp_time = 0.0
         while grasp_time < 0.25:
             self.ctrl_target_joint_pos[env_ids, 7:] = 0.0  # Close gripper.
@@ -771,11 +907,11 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             self.close_gripper_in_place()
             self.step_sim_no_action()
             grasp_time += self.sim.get_physics_dt()
-        
 
         self.prev_joint_pos = self.joint_pos[:, 0:7].clone()
         self.prev_fingertip_pos = self.fingertip_midpoint_pos.clone()
         self.prev_fingertip_quat = self.fingertip_midpoint_quat.clone()
+        
 
         # Set initial actions to involve no-movement. Needed for EMA/correct penalties.
         self.actions = torch.zeros_like(self.actions)
@@ -783,6 +919,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         # Back out what actions should be for initial state.
         # Relative position to bolt tip.
         self.fixed_pos_action_frame[:] = self.fixed_pos_obs_frame + self.init_fixed_pos_obs_noise
+        # self.fixed_pos_action_frame[:] = self.fixed_pos_obs_frame
 
         pos_actions = self.fingertip_midpoint_pos - self.fixed_pos_action_frame
         pos_action_bounds = torch.tensor(self.cfg.ctrl.pos_action_bounds, device=self.device)
@@ -814,62 +951,10 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         # Set initial gains for the episode.
         self._set_gains(self.default_gains)
 
-        # Enable gravity.
         physics_sim_view.set_gravity(carb.Float3(*self.cfg.sim.gravity))
 
-    # --- New Functions for AutoMate -----------------------------------------------------------------------------------------------------------------------------
-    def _load_assembly_info(self):
-        """Load disassembly distance for plugs in each environment."""
-
-        disassembly_dists = []
-        disassembly_dist_path = os.path.join(os.getcwd(), self.data_dir, self.disassembly_dist_file)
-
-        if os.path.exists(disassembly_dist_path):
-            in_file = open(disassembly_dist_path, "r")
-            disassembly_dist_dict = json.load(in_file)
-
-            # Need to Edit (Add By Seunghwan Yu)
-            disassembly_dists = [disassembly_dist_dict[self.asset_ID] for i in range(self.num_envs)] 
-        else:
-            raise FileNotFoundError(f"{disassembly_dist_path} does not exist.")
-
-        return torch.as_tensor(disassembly_dists).to(self.device)
-
-    def _disassemble_plug_from_socket(self):
-        """Lift plug from socket till disassembly and then randomize end-effector pose."""
-
-        if_intersect = np.ones(self.num_envs, dtype=np.float32)
-
-        # assemble_env_ids = np.argwhere(if_intersect==1).reshape(-1)
-        self._lift_gripper(self.disassembly_dists, if_log=True)
-        self.step_sim_action()
-
-        held_z_pos = self.held_pos[:,2]
-        fixed_z_pos = self.fixed_pos[:, 2]
-        if_intersect = (held_z_pos < fixed_z_pos + self.disassembly_dists).cpu().numpy()
-        success_env_ids = np.argwhere(if_intersect==0).reshape(-1)
-
-        return success_env_ids      
-
-    def _lift_gripper(self, lift_distance, if_log):
-        """Lift gripper by specified distance. Called outside RL loop (i.e., after last step of episode)."""
-
-        ctrl_tgt_pos = torch.empty_like(self.fingertip_midpoint_pos).copy_(self.fingertip_midpoint_pos)
-        ctrl_tgt_quat = torch.empty_like(self.fingertip_midpoint_quat).copy_(self.fingertip_midpoint_quat)
-        ctrl_tgt_pos[:, 2] += lift_distance
-
-        if if_log:
-            self._log_robot_state_per_timestep()
-
-    def step_sim_action(self):
-        """Step the simulation with an action. """
-        self.scene.write_data_to_sim()
-        self.sim.step(render=False)
-        self.scene.update(dt=self.physics_dt)
-        self._compute_intermediate_values(dt=self.physics_dt)
-
     def _init_log_data_per_assembly(self):
-        
+
         self.log_assembly_id = []
         self.log_plug_pos = []
         self.log_plug_quat = []
@@ -882,7 +967,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.log_arm_dof_pos = []
 
     def _init_log_data_per_episode(self):
-        
+
         self.log_fingertip_midpoint_pos_traj = []
         self.log_fingertip_midpoint_quat_traj = []
         self.log_arm_dof_pos_traj = []
@@ -909,39 +994,41 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.log_arm_dof_pos_traj.append(self.joint_pos.clone().detach())
         self.log_fingertip_midpoint_pos_traj.append(self.fingertip_midpoint_pos.clone().detach())
         self.log_fingertip_midpoint_quat_traj.append(self.fingertip_midpoint_quat.clone().detach())
-        print("current logging item num: ", len(self.log_arm_dof_pos))
 
-
-    '''
     def _log_object_state(self, env_ids):
         
-        self.log_plug_grasp_pos += self.init_plug_grasp_pos[env_ids].cpu().tolist()
-        self.log_plug_grasp_quat += self.init_plug_grasp_quat[env_ids].cpu().tolist()
+        # self.log_plug_grasp_pos += self.init_plug_grasp_pos[env_ids].cpu().tolist()
+        # self.log_plug_grasp_quat += self.init_plug_grasp_quat[env_ids].cpu().tolist()
         self.log_init_plug_pos += self.init_plug_pos[env_ids].cpu().tolist()
         self.log_init_plug_quat += self.init_plug_quat[env_ids].cpu().tolist()
-    '''
-    
+
     def _save_log_traj(self):
         
-        if len(self.log_arm_dof_pos) > 128: # self.cfg_task.env.num_log_traj:
+        # if len(self.log_arm_dof_pos) > 128: # self.cfg_task.env.num_log_traj: # TODO
+        if len(self.log_arm_dof_pos) > 100: # self.cfg_task.env.num_log_traj:
 
             log_item = []
-            for i in range(128):
+
+            # for i in range(self.cfg_task.env.num_log_traj): # TODO
+            # for i in range(128):
+            for i in range(100):
                 curr_dict = {}
                 curr_dict['fingertip_midpoint_pos'] = self.log_fingertip_midpoint_pos[i]
                 curr_dict['fingertip_midpoint_quat'] = self.log_fingertip_midpoint_quat[i]
                 curr_dict['arm_dof_pos'] = self.log_arm_dof_pos[i]
                 # curr_dict['plug_grasp_pos'] = self.log_plug_grasp_pos[i]
                 # curr_dict['plug_grasp_quat'] = self.log_plug_grasp_quat[i]
-                #curr_dict['init_plug_pos'] = self.log_init_plug_pos[i]
-                #curr_dict['init_plug_quat'] = self.log_init_plug_quat[i]
+                curr_dict['init_plug_pos'] = self.log_init_plug_pos[i]
+                curr_dict['init_plug_quat'] = self.log_init_plug_quat[i]
                 curr_dict['plug_pos'] = self.log_plug_pos[i]
                 curr_dict['plug_quat'] = self.log_plug_quat[i]
 
                 log_item.append(curr_dict)
             
-            # Need to edit (Add by Seunghwan Yu)
-            log_filename = os.path.join(os.getcwd(), self.data_dir, 'asset_00117_disassembly_traj.json')
+            log_filename = os.path.join(os.getcwd(), self.data_dir, self.save_data)
+
+            # default
+            # log_filename = os.path.join(os.getcwd(), self.cfg_task.env.data_dir, self.cfg_task.env.desired_subassemblies[0]+'_disassembly_traj.json')
 
             out_file = open(log_filename, "w+")
             json.dump(log_item, out_file, indent = 6)
@@ -951,4 +1038,29 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         else:
             print("current logging item num: ", len(self.log_arm_dof_pos))
 
-    # -------------------------------------------------------------------------------------------------------------------------------------------------------
+    def _is_last_step(self):
+        """A function to check if the current step is the last step in the current episode."""
+        is_last_step = self.episode_length_buf == 31 # episode_length_buf == 32 -> get_dones # 32-1 = 31
+
+        return is_last_step[0]
+    
+    # (EDIT BY SY)
+    def _log_state(self, is_last_step=False):
+
+        if is_last_step:
+            
+            if_intersect = np.ones(self.num_envs, dtype=np.float32)
+
+            # TODO Get current info
+            held_z_pos = self.held_pos[:,2]
+            fixed_z_pos = self.fixed_pos[:, 2]
+            if_intersect = (held_z_pos < fixed_z_pos + self.disassembly_dists).cpu().numpy()
+            success_env_ids = np.argwhere(if_intersect==0).reshape(-1)
+            self._log_robot_state(success_env_ids)
+            self._log_object_state(success_env_ids)
+
+            self._save_log_traj()
+
+    # Temporary name
+    def _log_state_per(self):
+        self._log_robot_state_per_timestep()

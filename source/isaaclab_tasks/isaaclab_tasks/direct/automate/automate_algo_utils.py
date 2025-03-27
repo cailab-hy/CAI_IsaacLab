@@ -199,11 +199,12 @@ def check_plug_inserted_in_socket(
 
     return is_plug_inserted_in_socket
 
+'''
 def get_curriculum_reward_scale(cfg_task, curr_max_disp, curriculum_height_bound, curriculum_height_step):
     """Compute reward scale for SBC."""
 
     # Compute difference between max downward displacement at beginning of training (easiest condition)
-    # and current max downward displacement (based on current curriculum stage)
+    # and current max downward displacement (based on current  curriculum stage)
     # NOTE: This number increases as curriculum gets harder
     curr_stage_diff = curr_max_disp - curriculum_height_bound[:, 0]
 
@@ -218,6 +219,7 @@ def get_curriculum_reward_scale(cfg_task, curr_max_disp, curriculum_height_bound
 
     return reward_scale.mean()
 
+'''
 
 def load_asset_convex_hull_in_warp(urdf_path, device):
     """Create mesh object in Warp."""
