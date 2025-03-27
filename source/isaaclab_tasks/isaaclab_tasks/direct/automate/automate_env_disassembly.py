@@ -52,7 +52,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
 
         # --- Variable for Automate ---------------------------------------------------------------------------
         # Get Asset ID
-        self.asset_ID = "asset_00117"
+        self.asset_ID = "asset_00855"
 
         # Get disassembly distances
         self.data_dir = "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data"
@@ -385,6 +385,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         ctrl_tgt_pos[:, 2] += self.disassembly_dists
 
         self.ctrl_target_fingertip_midpoint_pos = self.fingertip_midpoint_pos + pos_actions
+        self.ctrl_target_fingertip_midpoint_pos = self.gripper_start_pos[:,0:3] #new for automate
         #delta_pos = torch.abs(self.ctrl_target_fingertip_midpoint_pos - ctrl_tgt_pos)
         delta_pos = self.ctrl_target_fingertip_midpoint_pos - ctrl_tgt_pos
         pos_error_clipped = torch.clip(
@@ -497,13 +498,22 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self._fixed_asset.write_root_velocity_to_sim(fixed_state[:, 7:], env_ids=env_ids)
         self._fixed_asset.reset()
 
+        '''
         held_state = self._held_asset.data.default_root_state.clone()[env_ids]
         held_state[:, 0:3] += self.scene.env_origins[env_ids]
         held_state[:, 7:] = 0.0
         #held_state[:, 2] = 0.005     # ✪✪✪ Set the object's Z-axis height to 0. (By Seunghwan Yu) ✪✪✪
+        self._held_asset.write_root_pose_to_sim(fixed_state[:, 0:7], env_ids=env_ids)
+        self._held_asset.write_root_velocity_to_sim(fixed_state[:, 7:], env_ids=env_ids)
+        self._held_asset.reset()
+        '''
+        held_state = self._held_asset.data.default_root_state.clone()[env_ids]
+        held_state[:, 0:3] = fixed_state[:, 0:3]
+        #held_state[:, 0:2] = fixed_state[:, 0:2] 
+        #held_state[:, 2] -= 0.05 
+        held_state[:, 7:] = 0.0
         self._held_asset.write_root_pose_to_sim(held_state[:, 0:7], env_ids=env_ids)
         self._held_asset.write_root_velocity_to_sim(held_state[:, 7:], env_ids=env_ids)
-        self._held_asset.reset()
 
     def set_pos_inverse_kinematics(self, env_ids):
         """Set robot joint position using DLS IK."""
@@ -616,9 +626,6 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         )
         fixed_pos_init_rand = fixed_pos_init_rand @ torch.diag(fixed_asset_init_pos_rand)
         fixed_state[:, 0:3] += fixed_pos_init_rand + self.scene.env_origins[env_ids]
-        
-        # Set the object's height (z value) to 0. (add by SH)
-        # fixed_state[:, 2] = 0.0 
 
         # (1.b.) Orientation
         fixed_orn_init_yaw = np.deg2rad(self.cfg_task.fixed_asset_init_orn_deg)
@@ -646,22 +653,21 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         self.init_fixed_pos_obs_noise[:] = fixed_asset_pos_noise
 
         self.step_sim_no_action()
-
-        # (1.f.) Load plug in assembled state (i.e., move to socket position) (add by SH)
-        self._held_asset.write_root_pose_to_sim(fixed_state[:, 0:7], env_ids=env_ids)
-        self._held_asset.write_root_velocity_to_sim(fixed_state[:, 7:], env_ids=env_ids)
-        self._held_asset.reset()
-
+        
         # Compute the frame on the bolt that would be used as observation: fixed_pos_obs_frame
         # For example, the tip of the bolt can be used as the observation frame
         fixed_tip_pos_local = torch.zeros_like(self.fixed_pos)
         fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.height
         fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.base_height
+        #fixed_tip_pos_local[:, 2] += self.cfg_task.held_asset_cfg.height
+        #fixed_tip_pos_local[:, 2] += self.cfg_task.held_asset_cfg.base_height
 
         _, fixed_tip_pos = torch_utils.tf_combine(
             self.fixed_quat, self.fixed_pos, self.identity_quat, fixed_tip_pos_local
         )
+        
         self.fixed_pos_obs_frame[:] = fixed_tip_pos
+        #self.gripper_start_pos = fixed_tip_pos
 
         # (2) Move gripper to randomizes location above fixed asset. Keep trying until IK succeeds.
         # (a) get position vector to target
@@ -675,7 +681,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             n_bad = bad_envs.shape[0]
 
             above_fixed_pos = fixed_tip_pos.clone()
-            above_fixed_pos[:, 2] += self.cfg_task.hand_init_pos[2]
+            #above_fixed_pos[:, 2] += self.cfg_task.hand_init_pos[2]
 
             # (b) get random orientation facing down
             hand_down_euler = (
@@ -923,10 +929,10 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
     
     def _save_log_traj(self):
         
-        if len(self.log_arm_dof_pos) > 128: # self.cfg_task.env.num_log_traj:
+        if len(self.log_arm_dof_pos) > 100: # self.cfg_task.env.num_log_traj:
 
             log_item = []
-            for i in range(128):
+            for i in range(100):
                 curr_dict = {}
                 curr_dict['fingertip_midpoint_pos'] = self.log_fingertip_midpoint_pos[i]
                 curr_dict['fingertip_midpoint_quat'] = self.log_fingertip_midpoint_quat[i]
@@ -941,7 +947,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
                 log_item.append(curr_dict)
             
             # Need to edit (Add by Seunghwan Yu)
-            log_filename = os.path.join(os.getcwd(), self.data_dir, 'asset_00117_disassembly_traj.json')
+            log_filename = os.path.join(os.getcwd(), self.data_dir, 'asset_00855_disassembly_traj.json')
 
             out_file = open(log_filename, "w+")
             json.dump(log_item, out_file, indent = 6)

@@ -523,6 +523,7 @@ class AutomateEnv(DirectRLEnv):
         is_close_or_below = torch.where(
             z_disp < height_threshold, torch.ones_like(curr_successes), torch.zeros_like(curr_successes)
         )
+        
         # --- New function for Automate ---------------------------------add by hong
         is_plug_inserted_in_socket = automate_algo.check_plug_inserted_in_socket(
                                                                                 plug_pos=self.held_pos,
@@ -533,7 +534,7 @@ class AutomateEnv(DirectRLEnv):
                                                                                 cfg_task=self.cfg_task,
                                                                                 episode_length_buf=self.episode_length_buf.clone().detach(),
                                                                             )
-
+        #curr_successes = torch.logical_and(torch.logical_and(is_centered, is_close_or_below), is_plug_inserted_in_socket)
         curr_successes = torch.logical_and(is_centered, is_plug_inserted_in_socket)
         # --- New function for Automate --------------------------------------
 
@@ -556,6 +557,27 @@ class AutomateEnv(DirectRLEnv):
         # Only log episode success rates at the end of an episode.
         if torch.any(self.reset_buf):
             self.extras["successes"] = torch.count_nonzero(curr_successes) / self.num_envs
+
+            
+            #------------------------Automate add by hong -------------this is for test----
+            print("Insertion Success: ", self.extras["successes"].item()) 
+
+            print("Individual Successes:", curr_successes)
+
+            if not hasattr(self, "success_rates"):
+                self.success_rates = []
+
+            self.success_rates.append(self.extras["successes"].item())
+
+            if len(self.success_rates) >= 20:
+                avg_success = sum(self.success_rates) / len(self.success_rates)
+                print(f"\n=== Average Success Rate after 20 Runs: {avg_success:.4f} ===\n")
+                self.success_rates = []
+
+                self.extras["terminate"] = True
+                raise KeyboardInterrupt
+            #------------------------Automate add by hong ----------------------------
+            
 
         # Get the time at which an episode first succeeds.
         first_success = torch.logical_and(curr_successes, torch.logical_not(self.ep_succeeded))
@@ -581,9 +603,11 @@ class AutomateEnv(DirectRLEnv):
         self.soft_dtw_criterion = SoftDTW(use_cuda=True, gamma=0.01)
 
         # Imitation Reward: Calculate reward
-        curr_eef_pos = self.fixed_pos_action_frame - self.ctrl_target_fingertip_midpoint_pos # relative position instead of absolute position
-        
-        prev_fingertip_centered_pos = (self.fixed_pos_action_frame-self.ctrl_target_fingertip_midpoint_pos).unsqueeze(1) # (num_envs, 1, 3)
+        #curr_eef_pos = self.fixed_pos_action_frame - self.ctrl_target_fingertip_midpoint_pos # relative position instead of absolute position
+        curr_eef_pos = self.ctrl_target_fingertip_midpoint_pos - self.fixed_pos_action_frame
+
+        #prev_fingertip_centered_pos = (self.fixed_pos_action_frame - self.ctrl_target_fingertip_midpoint_pos).unsqueeze(1)
+        prev_fingertip_centered_pos = curr_eef_pos.unsqueeze(1)
         self.prev_fingertip_centered_pos = torch.repeat_interleave(prev_fingertip_centered_pos, 10, dim=1)
 
         imitation_rwd = automate_algo.get_imitation_reward_from_dtw(self.eef_pos_traj, 
@@ -595,8 +619,12 @@ class AutomateEnv(DirectRLEnv):
         # Imitation Reward: Update end-effector trajectory window 
         self.prev_fingertip_centered_pos = torch.cat((self.prev_fingertip_centered_pos[:, 1:, :], curr_eef_pos.unsqueeze(1).clone().detach()), dim=1)        
 
+        #rew_dict["imitation_rwd"] = imitation_rwd.float()
+        rew_dict["imitation_rwd"] = torch.mean(1.0 * imitation_rwd)
+
         # Only count reward that falls in the demonstration funnel
         reward_mask = automate_algo.get_reward_mask(self.eef_pos_traj, curr_eef_pos, 0.01)
+        rew_dict["reward_mask"] = reward_mask.float()
         #------------------------------------
 
         # Keypoint rewards.
@@ -618,30 +646,35 @@ class AutomateEnv(DirectRLEnv):
         rew_dict["curr_engaged"] = (
             self._get_curr_successes(success_threshold=self.cfg_task.engage_threshold, check_rot=False).clone().float()
         )
-        #rew_dict["curr_successes"] = curr_successes.clone().float()
-
+        rew_dict["curr_successes"] = curr_successes.clone().float()
+        
         #---------------Automate---------------add by hong
         z_disp = self.held_base_pos[:, 2] - self.target_held_base_pos[:, 2]
-        new_reward = torch.exp(-5 * (z_disp / self.disassembly_dists))
-
-        rew_dict["curr_successes"] = new_reward
+        z_error = torch.abs(z_disp)
+        new_reward = torch.exp(-10 * z_error)
+        rew_dict["new_reward"] = new_reward
         #---------------Automate---------------
-
+        
         rew_buf = (
-            rew_dict["kp_coarse"] * 0.5
+            rew_dict["kp_coarse"]
             + rew_dict["kp_baseline"]
-            + rew_dict["kp_fine"] * 1.5
+            + rew_dict["kp_fine"]
             - rew_dict["action_penalty"] * self.cfg_task.action_penalty_scale
             - rew_dict["action_grad_penalty"] * self.cfg_task.action_grad_penalty_scale
             + rew_dict["curr_engaged"]
             + rew_dict["curr_successes"]
+            + rew_dict["new_reward"]
         )
+        '''
 
+            + rew_dict["imitation_rwd"] * 0.5
+            + rew_dict["reward_mask"]
+        '''
         # Imitation Reward: Apply reward
-        rew_buf[:] += 1.0 * imitation_rwd
+        rew_buf[:] += imitation_rwd * 0.5
 
         rew_buf[:] *= reward_mask
-
+        
         for rew_name, rew in rew_dict.items():
             self.extras[f"logs_rew_{rew_name}"] = rew.mean()
 

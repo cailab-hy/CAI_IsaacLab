@@ -174,7 +174,7 @@ def main():
             # agent stepping
             actions = agent.get_action(obs, is_deterministic=agent.is_deterministic)
             # env stepping
-            obs, _, dones, _ = env.step(actions)
+            obs, _, dones, infos = env.step(actions)
 
             # perform operations for terminated episodes
             if len(dones) > 0:
@@ -187,13 +187,12 @@ def main():
             # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
+        #------------------------- Add by hong ----------------------
+        if infos.get("terminate", False):
+            print("\n=== Terminating Simulation After 20 Runs ===")
+            env.close()
+            break
 
-        # time delay for real-time evaluation
-        sleep_time = dt - (time.time() - start_time)
-        if args_cli.real_time and sleep_time > 0:
-            time.sleep(sleep_time)
-
-    # close the simulator
     env.close()
 
 

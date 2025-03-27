@@ -98,6 +98,7 @@ class Plug_00117(HeldAssetCfg):
 
     # Not Used?
     mass = 0.019
+    base_height = 0.0
 
 @configclass
 class Socket_00117(FixedAssetCfg):
@@ -122,6 +123,7 @@ class Plug_00004(HeldAssetCfg):
 
     # Not Used?
     mass = 0.019
+    base_height = 0.0
 
 @configclass
 class Socket_00004(FixedAssetCfg):
@@ -134,6 +136,58 @@ class Socket_00004(FixedAssetCfg):
     height = 0.02219
     base_height = 0.0
 
+@configclass
+class Plug_01132(HeldAssetCfg):
+    usd_path = f"{AUTOMATE_ASSET_DIR}/01132_plug/01132_plug.usd"
+    
+    # Used for automate_env.py's def _set_franka_to_default_pose() | unit: meter
+    diameter = 0.00884
+
+    # Used for automate_env.py's def get_handheld_asset_relative_pose() | unit: meter
+    height = 0.09614
+
+    # Not Used?
+    mass = 0.019
+    base_height = 0.0
+
+@configclass
+class Socket_01132(FixedAssetCfg):
+    usd_path = f"{AUTOMATE_ASSET_DIR}/01132_socket/01132_socket.usd"
+
+    # Not Used?
+    diameter = 0.00980
+
+    # Used for automate_env.py's def _init_tensors() & def randomize_initial_state() | unit: meter
+    height = 0.05674
+    base_height = 0.0
+
+@configclass
+class Plug_00855(HeldAssetCfg):
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00855_plug/00855_plug.usd"
+    
+    # Used for automate_env.py's def _set_franka_to_default_pose() | unit: meter
+    diameter = 0.00893
+
+    # Used for automate_env.py's def get_handheld_asset_relative_pose() | unit: meter
+    height = 0.06270
+    #height = 0.05270
+
+    # Not Used?
+    mass = 0.019
+    base_height = 0.0
+
+@configclass
+class Socket_00855(FixedAssetCfg):
+    usd_path = f"{AUTOMATE_ASSET_DIR}/00855_socket/00855_socket.usd"
+
+    # Not Used?
+    diameter = 0.00953
+
+    # Used for automate_env.py's def _init_tensors() & def randomize_initial_state() | unit: meter
+    height = 0.03265
+    base_height = 0.0
+
+'''
 @configclass
 class Plug(HeldAssetCfg):
     usd_path = f"{AUTOMATE_ASSET_DIR}/00004_plug/00004_plug.usd"
@@ -148,13 +202,18 @@ class Socket(FixedAssetCfg):
     diameter = 0.0081
     height = 0.025
     base_height = 0.0
+'''
 
 
 @configclass
 class PlugInsert(AutomateTask):
     name = "plug_insert"
-    fixed_asset_cfg = Socket_00117()
-    held_asset_cfg = Plug_00117()
+    #fixed_asset_cfg = Socket_00117()
+    #held_asset_cfg = Plug_00117()
+    #fixed_asset_cfg = Socket_01132()
+    #held_asset_cfg = Plug_01132()
+    fixed_asset_cfg = Socket_00855()
+    held_asset_cfg = Plug_00855()
     asset_size = 8.0
     duration_s = 10.0
 
