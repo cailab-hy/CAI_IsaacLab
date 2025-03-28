@@ -881,9 +881,9 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
             if bad_envs.shape[0] == 0:
                 break
 
-            # self._set_franka_to_default_pose(
-            #     joints=[0.00871, -0.10368, -0.00794, -1.49139, -0.00083, 1.38774, 0.0], env_ids=bad_envs
-            # )
+            self._set_franka_to_default_pose(
+                joints=[0.00871, -0.10368, -0.00794, -1.49139, -0.00083, 1.38774, 0.0], env_ids=bad_envs
+            )
 
             ik_attempt += 1
             print(f"IK Attempt: {ik_attempt}\tBad Envs: {bad_envs.shape[0]}")
