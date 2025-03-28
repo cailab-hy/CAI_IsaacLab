@@ -827,10 +827,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         # Compute the frame on the bolt that would be used as observation: fixed_pos_obs_frame
         # For example, the tip of the bolt can be used as the observation frame
         fixed_tip_pos_local = torch.zeros_like(self.fixed_pos)
-        # fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.height
-        # fixed_tip_pos_local[:, 2] += self.cfg_task.fixed_asset_cfg.base_height
         fixed_tip_pos_local[:, 2] += self.cfg_task.held_asset_cfg.height
-        fixed_tip_pos_local[:, 2] += self.cfg_task.held_asset_cfg.base_height
 
         _, fixed_tip_pos = torch_utils.tf_combine(
             self.fixed_quat, self.fixed_pos, self.identity_quat, fixed_tip_pos_local
