@@ -48,6 +48,8 @@ class AutomateEnv(DirectRLEnv):
 
         self.plug_grasps, self.disassembly_dists = self._load_assembly_info()
         self.curriculum_height_bound, self.curriculum_height_step = self._get_curriculum_info(self.disassembly_dists)
+
+        self.is_test = cfg.is_test
         # =============================================================================
 
         self._set_body_inertias()
@@ -547,26 +549,25 @@ class AutomateEnv(DirectRLEnv):
         if torch.any(self.reset_buf):
             self.extras["successes"] = torch.count_nonzero(curr_successes) / self.num_envs
 
-            '''
             # === Used only during testing. A statement for measuring assembly success rate. (Edit by CAI-Lab) ============
-            print("Insertion Success: ", self.extras["successes"].item()) 
+            if self.is_test:
+                print("Insertion Success: ", self.extras["successes"].item()) 
 
-            print("Individual Successes:", curr_successes)
+                print("Individual Successes:", curr_successes)
 
-            if not hasattr(self, "success_rates"):
-                self.success_rates = []
+                if not hasattr(self, "success_rates"):
+                    self.success_rates = []
 
-            self.success_rates.append(self.extras["successes"].item())
+                self.success_rates.append(self.extras["successes"].item())
 
-            if len(self.success_rates) >= 20:
-                avg_success = sum(self.success_rates) / len(self.success_rates)
-                print(f"\n=== Average Success Rate after 20 Runs: {avg_success:.4f} ===\n")
-                self.success_rates = []
+                if len(self.success_rates) >= 20:
+                    avg_success = sum(self.success_rates) / len(self.success_rates)
+                    print(f"\n=== Average Success Rate after 20 Runs: {avg_success:.4f} ===\n")
+                    self.success_rates = []
 
-                self.extras["terminate"] = True
-                raise KeyboardInterrupt
+                    self.extras["terminate"] = True
+                    raise KeyboardInterrupt
             # =============================================================================================================
-            '''
 
         # Get the time at which an episode first succeeds.
         first_success = torch.logical_and(curr_successes, torch.logical_not(self.ep_succeeded))

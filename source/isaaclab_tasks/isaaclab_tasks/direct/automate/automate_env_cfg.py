@@ -6,7 +6,7 @@
 import isaaclab.sim as sim_utils
 from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
-from isaaclab.envs import DirectRLEnvCfg
+from isaaclab.envs import DirectRLEnvAutomateCfg
 ##
 from isaaclab.envs import DirectRLEnvAutomate
 from isaaclab.scene import InteractiveSceneCfg
@@ -67,7 +67,7 @@ class CtrlCfg:
     kd_null = 6.3246
 
 @configclass
-class AutomateEnvCfg(DirectRLEnvCfg):
+class AutomateEnvCfg(DirectRLEnvAutomateCfg):
     decimation = 8
     action_space = 6
     # num_*: will be overwritten to correspond to obs_order, state_order.
