@@ -26,6 +26,9 @@ class DirectRLEnvAutomateCfg:
     
     # Number of trajectories to log
     num_log_traj: int | None = None
+
+    # If in training mode, this value is set to False; if in testing mode, it is set to True.
+    is_test: bool = False
     # ==================================================
 
     # simulation settings
