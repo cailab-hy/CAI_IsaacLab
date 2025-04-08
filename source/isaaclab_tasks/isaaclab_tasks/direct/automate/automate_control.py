@@ -12,9 +12,7 @@ import math
 import torch
 
 import isaacsim.core.utils.torch as torch_utils
-
 from isaaclab.utils.math import axis_angle_from_quat
-
 
 def compute_dof_torque(
     cfg,
@@ -90,7 +88,6 @@ def compute_dof_torque(
     dof_torque = torch.clamp(dof_torque, min=-100.0, max=100.0)
     return dof_torque, task_wrench
 
-
 def get_pose_error(
     fingertip_midpoint_pos,
     fingertip_midpoint_quat,
@@ -134,7 +131,6 @@ def get_pose_error(
     elif rot_error_type == "axis_angle":
         return pos_error, axis_angle_error
 
-
 def _get_delta_dof_pos(delta_pose, ik_method, jacobian, device):
     """Get delta Franka DOF position from delta pose using specified IK method."""
     # References:
@@ -173,7 +169,6 @@ def _get_delta_dof_pos(delta_pose, ik_method, jacobian, device):
         delta_dof_pos = delta_dof_pos.squeeze(-1)
 
     return delta_dof_pos
-
 
 def _apply_task_space_gains(
     delta_fingertip_pose, fingertip_midpoint_linvel, fingertip_midpoint_angvel, task_prop_gains, task_deriv_gains

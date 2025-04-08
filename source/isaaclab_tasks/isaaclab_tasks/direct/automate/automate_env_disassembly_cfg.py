@@ -6,15 +6,15 @@
 import isaaclab.sim as sim_utils
 from isaaclab.actuators.actuator_cfg import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
-from isaaclab.envs import DirectRLEnvCfg
-##
-from isaaclab.envs import DirectRLEnvAutomate
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import PhysxCfg, SimulationCfg
 from isaaclab.sim.spawners.materials.physics_materials_cfg import RigidBodyMaterialCfg
 from isaaclab.utils import configclass
 
-from .automate_tasks_cfg import ASSET_DIR, AutomateTask, PlugInsert
+# === Load library for AutoMate (Edit by CAI-Lab) ==========================================
+from isaaclab.envs import DirectRLEnvAutomateCfg
+from .automate_tasks_disassembly_cfg import ASSET_DIR, AutomateTaskDisassembly, PlugInsert
+# ==========================================================================================
 
 OBS_DIM_CFG = {
     "fingertip_pos": 3,
@@ -67,7 +67,7 @@ class CtrlCfg:
     kd_null = 6.3246
 
 @configclass
-class AutomateEnvCfg(DirectRLEnvCfg):
+class AutomateEnvDisassemblyCfg(DirectRLEnvAutomateCfg):
     decimation = 8
     action_space = 6
     # num_*: will be overwritten to correspond to obs_order, state_order.
@@ -87,8 +87,8 @@ class AutomateEnvCfg(DirectRLEnvCfg):
         "fixed_quat",
     ]
 
-    task_name: str = "plug_insert"
-    task: AutomateTask = AutomateTask()
+    task_name: str = "peg_insert"
+    task: AutomateTaskDisassembly = AutomateTaskDisassembly()
     obs_rand: ObsRandCfg = ObsRandCfg()
     ctrl: CtrlCfg = CtrlCfg()
 
@@ -186,7 +186,7 @@ class AutomateEnvCfg(DirectRLEnvCfg):
     )
 
 @configclass
-class AutomateTaskPlugInsertCfg(AutomateEnvCfg):
-    task_name = "plug_insert"
+class AutomateTaskDisassemblyCfg(AutomateEnvDisassemblyCfg):
+    task_name = "plug_disassembly"
     task = PlugInsert()
-    episode_length_s = 10.0
+    episode_length_s = 10

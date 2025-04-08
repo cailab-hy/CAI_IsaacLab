@@ -47,7 +47,7 @@ class RobotCfg:
     friction: float = 0.75
 
 @configclass
-class AutomateTask:
+class AutomateTaskDisassembly:
     robot_cfg: RobotCfg = RobotCfg()
     asset_ID: str = ""
     name: str = ""
@@ -238,7 +238,7 @@ class Socket(HeldAssetCfg):
     # === SY Hong   (00741~01136) =====
 
 @configclass
-class PlugInsert(AutomateTask):
+class PlugInsert(AutomateTaskDisassembly):
     name = "plug_insert"
     fixed_asset_cfg = Socket()
     held_asset_cfg = Plug()

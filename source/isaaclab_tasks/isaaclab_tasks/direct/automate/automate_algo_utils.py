@@ -1,8 +1,6 @@
 import numpy as np
-from pysdf import SDF
 import torch
 import trimesh
-from urdfpy import URDF
 import warp as wp
 
 import os
@@ -146,7 +144,7 @@ Bonus and Success Checking
 """
 
 def check_plug_close_to_socket(
-    keypoints_plug, keypoints_socket, dist_threshold, progress_buf
+    keypoints_plug, keypoints_socket, dist_threshold, episode_length_buf
 ):
     """Check if plug is close to socket."""
 
@@ -156,19 +154,19 @@ def check_plug_close_to_socket(
     # Check if keypoint distance is below threshold
     is_plug_close_to_socket = torch.where(
         torch.mean(keypoint_dist, dim=-1) < dist_threshold,
-        torch.ones_like(progress_buf),
-        torch.zeros_like(progress_buf),
+        torch.ones_like(episode_length_buf),
+        torch.zeros_like(episode_length_buf),
     )
 
     return is_plug_close_to_socket
 
-
+# Need to check (SH-Yu)
 def check_plug_inserted_in_socket(
-    plug_pos, socket_pos, curriculum_bound, keypoints_plug, keypoints_socket, cfg_task, progress_buf
+    plug_pos, socket_pos, curriculum_bound, keypoints_plug, keypoints_socket, cfg_task, episode_length_buf
 ):
     """Check if plug is inserted in socket."""
 
-    plug_engage_height = curriculum_bound[:, 1] - cfg_task.rl.curriculum_freespace_range
+    plug_engage_height = curriculum_bound[:, 1] - 0.01
 
     # Check if plug is within threshold distance of assembled state
     is_plug_below_insertion_height = (
@@ -188,8 +186,8 @@ def check_plug_inserted_in_socket(
     is_plug_close_to_socket = check_plug_close_to_socket(
         keypoints_plug=keypoints_plug,
         keypoints_socket=keypoints_socket,
-        dist_threshold=cfg_task.rl.close_error_thresh,
-        progress_buf=progress_buf,
+        dist_threshold=0.15,
+        episode_length_buf=episode_length_buf,
     )
 
     # Combine both checks
