@@ -97,7 +97,7 @@ def load_cfg_from_registry(task_name: str, entry_point_key: str) -> dict | objec
 
 
 def parse_env_cfg(
-    task_name: str, device: str = "cuda:0", num_envs: int | None = None, use_fabric: bool | None = None
+    task_name: str, device: str = "cuda:0", num_envs: int | None = None, use_fabric: bool | None = None, asset_id: str | None = None
 ) -> ManagerBasedRLEnvCfg | DirectRLEnvCfg:
     """Parse configuration for an environment and override based on inputs.
 
@@ -126,13 +126,22 @@ def parse_env_cfg(
 
     # simulation device
     cfg.sim.device = device
+
     # disable fabric to read/write through USD
     if use_fabric is not None:
         cfg.sim.use_fabric = use_fabric
+
     # number of environments
     if num_envs is not None:
         cfg.scene.num_envs = num_envs
 
+    # dynamic config asset id (add by Hyoung_Geun)
+    if asset_id is not None:
+        try:
+            cfg.task.asset_id = asset_id
+        except AttributeError:
+            raise RuntimeError("The configuration for the task does not contain a 'asset_id' field.")
+        
     return cfg
 
 

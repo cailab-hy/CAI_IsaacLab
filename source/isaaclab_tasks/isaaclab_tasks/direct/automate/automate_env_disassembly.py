@@ -26,7 +26,7 @@ import os
 
 class AutomateEnvDisassembly(DirectRLEnvAutomate):
     cfg: AutomateEnvDisassemblyCfg
-
+    
     def __init__(self, cfg: AutomateEnvDisassemblyCfg, render_mode: str | None = None, **kwargs):
         # Update number of obs/states
         cfg.observation_space = sum([OBS_DIM_CFG[obs] for obs in cfg.obs_order])
@@ -38,10 +38,14 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         super().__init__(cfg, render_mode, **kwargs)
 
         # tmp
-        self.asset_ID = "asset_00117"
-        self.data_dir = "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data"
-        self.save_data = "asset_00117_disassembly_traj.json"
-        self.disassembly_dist_file = "disassembly_dist.json"
+        #self.asset_ID = "asset_00004"
+        #self.data_dir = "source/isaaclab_tasks/isaaclab_tasks/direct/automate/data"
+        #self.save_data = "asset_00004_disassembly_traj.json"
+        #self.disassembly_dist_file = "disassembly_dist.json"
+        self.asset_ID = f"asset_{(cfg.task.asset_id)}"  # 예: asset_id가 "4"면 "asset_00004"
+        self.data_dir = cfg.task.data_dir
+        self.disassembly_dist_file = cfg.task.disassembly_dist_file
+        self.save_data = cfg.task.save_data  # 예: "plug_1_results.json"
 
         # load disassembly distances
         self.disassembly_dists = self._load_assembly_info()
@@ -126,12 +130,14 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         held_base_x_offset = 0.0
         if self.cfg_task.name == "plug_insert":
             held_base_z_offset = 0.0
+        
         elif self.cfg_task.name == "gear_mesh":
             gear_base_offset = self._get_target_gear_base_offset()
             held_base_x_offset = gear_base_offset[0]
             held_base_z_offset = gear_base_offset[2]
         elif self.cfg_task.name == "nut_thread":
             held_base_z_offset = self.cfg_task.fixed_asset_cfg.base_height
+      
         else:
             raise NotImplementedError("Task not implemented")
 

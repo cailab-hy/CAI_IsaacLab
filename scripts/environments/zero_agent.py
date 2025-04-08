@@ -18,6 +18,8 @@ parser.add_argument(
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+# dynamic config asset id (add by Hyoung_Geun)
+parser.add_argument("--asset_id", type=str, default=None, help="Asset ID to override in the configuration.")
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
@@ -40,7 +42,12 @@ def main():
     """Zero actions agent with Isaac Lab environment."""
     # parse configuration
     env_cfg = parse_env_cfg(
-        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=not args_cli.disable_fabric
+        args_cli.task, 
+        device=args_cli.device, 
+        num_envs=args_cli.num_envs, 
+        use_fabric=not args_cli.disable_fabric,
+        # dynamic config asset id (add by Hyoung_Geun)
+        asset_id=args_cli.asset_id
     )
     # create environment
     env = gym.make(args_cli.task, cfg=env_cfg)

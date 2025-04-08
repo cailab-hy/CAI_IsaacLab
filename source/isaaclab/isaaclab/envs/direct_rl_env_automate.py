@@ -30,7 +30,8 @@ from isaaclab.utils.noise import NoiseModel
 from isaaclab.utils.timer import Timer
 
 from .common import VecEnvObs, VecEnvStepReturn
-from .direct_rl_env_cfg import DirectRLEnvCfg
+# from .direct_rl_env_cfg import DirectRLEnvCfg
+from .direct_rl_env_automate_cfg import DirectRLEnvAutomateCfg
 from .ui import ViewportCameraController
 from .utils.spaces import sample_space, spec_to_gym_space
 
@@ -328,8 +329,18 @@ class DirectRLEnvAutomate(gym.Env):
         # perform physics stepping
         for _ in range(self.cfg.decimation):
             self._sim_step_counter += 1
+
             # set actions into buffers
-            self._apply_action()
+            # edit by js
+            if self.episode_length_buf[0] < 20:
+                # 1. Picking up the Plug for Disassembly Path
+                self._apply_action()
+            else:
+                # 2. Moving to a Random Position for Disassembly Path
+                self._apply_randomize_action()
+
+            self._log_state_per()
+            
             # set actions into simulator
             self.scene.write_data_to_sim()
             # simulate
@@ -342,9 +353,9 @@ class DirectRLEnvAutomate(gym.Env):
             # update buffers at sim dt
             self.scene.update(dt=self.physics_dt)
 
-        # post-step:
+        # log
         is_last_step = self._is_last_step()
-        self._post_physics_step(is_last_step)
+        self._log_state(is_last_step)
         
         # -- update env counters (used for curriculum generation)
         self.episode_length_buf += 1  # step in current episode (per env)
@@ -352,7 +363,7 @@ class DirectRLEnvAutomate(gym.Env):
 
         self.reset_terminated[:], self.reset_time_outs[:] = self._get_dones()
         self.reset_buf = self.reset_terminated | self.reset_time_outs
-        #self.reward_buf = self._get_rewards()
+        self.reward_buf = self._get_rewards()
 
         # -- reset envs that terminated/timed-out and log the episode information
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -379,7 +390,7 @@ class DirectRLEnvAutomate(gym.Env):
             self.obs_buf["policy"] = self._observation_noise_model.apply(self.obs_buf["policy"])
 
         # return observations, rewards, resets and extras
-        return self.obs_buf, self.reset_terminated, self.reset_time_outs, self.extras # self.reward_buf,
+        return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
 
     @staticmethod
     def seed(seed: int = -1) -> int:
@@ -619,6 +630,16 @@ class DirectRLEnvAutomate(gym.Env):
         """
         raise NotImplementedError(f"Please implement the '_apply_action' method for {self.__class__.__name__}.")
 
+    # new function for a random disassembly path
+    @abstractmethod
+    def _apply_randomize_action(self):
+        """Apply randomize actions to the simulator.
+
+        This function is responsible for applying the actions to the simulator. It is called at each
+        physics time-step.
+        """
+        raise NotImplementedError(f"Please implement the '_apply_randomize_action' method for {self.__class__.__name__}.")
+
     @abstractmethod
     def _get_observations(self) -> VecEnvObs:
         """Compute and return the observations for the environment.
@@ -640,7 +661,6 @@ class DirectRLEnvAutomate(gym.Env):
         """
         return None  # noqa: R501
 
-    '''
     @abstractmethod
     def _get_rewards(self) -> torch.Tensor:
         """Compute and return the rewards for the environment.
@@ -649,7 +669,6 @@ class DirectRLEnvAutomate(gym.Env):
             The rewards for the environment. Shape is (num_envs,).
         """
         raise NotImplementedError(f"Please implement the '_get_rewards' method for {self.__class__.__name__}.")
-    '''
 
     @abstractmethod
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -670,6 +689,31 @@ class DirectRLEnvAutomate(gym.Env):
         """
         raise NotImplementedError(f"Debug visualization is not implemented for {self.__class__.__name__}.")
 
+    @abstractmethod
+    def _is_last_step(self) -> tuple[torch.Tensor]:
+        """Compute and return the last_step flags for the environment.
+
+        Returns:
+            A tuple containing the done flags for last_step.
+            Shape of individual tensors is (num_envs,).
+        """
+        raise NotImplementedError(f"Please implement the '_get_dones' method for {self.__class__.__name__}.")
+
+    @abstractmethod
+    def _log_state(self) -> tuple[torch.Tensor]:
+        """Logging robot_state & object state.
+
+        """
+        raise NotImplementedError(f"Please implement the '_log_state' method for {self.__class__.__name__}.")
+
+    @abstractmethod
+    def _log_state_per(self) -> tuple[torch.Tensor]:
+        """Logging robot_state & object state.
+
+        """
+        raise NotImplementedError(f"Please implement the '_log_state_per' method for {self.__class__.__name__}.")
+
+    ''' not using
     # --- New function for Automate ---------------------------------------------------------------------------------- 
     @abstractmethod
     def _post_physics_step(self):
@@ -691,3 +735,4 @@ class DirectRLEnvAutomate(gym.Env):
         """
         raise NotImplementedError(f"Please implement the '_get_dones' method for {self.__class__.__name__}.")
     # ----------------------------------------------------------------------------------------------------------------
+    '''
