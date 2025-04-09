@@ -133,7 +133,7 @@ class Plug(HeldAssetCfg):
 
     elif ASSET_ID == "00032":
         diameter = 0.00496
-        height = 0.02000
+        height = 0.02000 + 0.005
 
     elif ASSET_ID == "00042":
         diameter = 0.00544
