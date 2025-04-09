@@ -13,7 +13,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
-from isaaclab.utils.math import axis_angle_from_quat
+from isaaclab.utils.math import axis_angle_from_quat, euler_xyz_from_quat # === Add euler_xyz_from_quat (Edit by CAI-Lab) ===
 
 from . import automate_control as fc
 from .automate_env_disassembly_cfg import OBS_DIM_CFG, STATE_DIM_CFG, AutomateEnvDisassemblyCfg
@@ -757,7 +757,7 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
     def step_sim_no_action(self):
         """Step the simulation without an action. Used for resets."""
         self.scene.write_data_to_sim()
-        self.sim.step(render=False)
+        self.sim.step(render=True)
         self.scene.update(dt=self.physics_dt)
         self._compute_intermediate_values(dt=self.physics_dt)
 
@@ -830,30 +830,25 @@ class AutomateEnvDisassembly(DirectRLEnvAutomate):
         ik_attempt = 0
 
         hand_down_quat = torch.zeros((self.num_envs, 4), dtype=torch.float32, device=self.device)
-        self.hand_down_euler = torch.zeros((self.num_envs, 3), dtype=torch.float32, device=self.device)
+        hand_down_euler = torch.zeros((self.num_envs, 3), dtype=torch.float32, device=self.device)
 
         while True:
             n_bad = bad_envs.shape[0]
             above_fixed_pos = fixed_tip_pos.clone()
 
-            # (b) get random orientation facing down
-            hand_down_euler = (
-                torch.tensor(self.cfg_task.hand_init_orn, device=self.device).unsqueeze(0).repeat(n_bad, 1)
-            )
-
-            rand_sample = torch.rand((n_bad, 3), dtype=torch.float32, device=self.device)
-            above_fixed_orn_noise = 2 * (rand_sample - 0.5)  # [-1, 1]
-            hand_init_orn_rand = torch.tensor(self.cfg_task.hand_init_orn_noise, device=self.device)
-            above_fixed_orn_noise = above_fixed_orn_noise @ torch.diag(hand_init_orn_rand)
-            hand_down_euler += above_fixed_orn_noise
-            self.hand_down_euler[bad_envs, ...] = hand_down_euler
+            # (b) === Setting the gripper yaw value according to the plug yaw (Edit by CAI-Lab) ========
+            rx, ry, rz = euler_xyz_from_quat(quat=fixed_state[bad_envs, 3:7])
+            hand_down_euler[bad_envs, 0] = 3.1416
+            hand_down_euler[bad_envs, 1] = 0
+            hand_down_euler[bad_envs, 2] = rz
             hand_down_quat[bad_envs, :] = torch_utils.quat_from_euler_xyz(
-                roll=hand_down_euler[:, 0], pitch=hand_down_euler[:, 1], yaw=hand_down_euler[:, 2]
+                roll=hand_down_euler[bad_envs, 0], pitch=hand_down_euler[bad_envs, 1], yaw=hand_down_euler[bad_envs, 2]
             )
-            
+            # ==========================================================================================
+
             # (c) iterative IK Method # check here
             self.ctrl_target_fingertip_midpoint_pos[bad_envs, ...] = above_fixed_pos[bad_envs, ...]
-            # self.ctrl_target_fingertip_midpoint_quat[bad_envs, ...] = hand_down_quat[bad_envs, :] # TODO
+            self.ctrl_target_fingertip_midpoint_quat[bad_envs, ...] = hand_down_quat[bad_envs, :]
 
             pos_error, aa_error = self.set_pos_inverse_kinematics(env_ids=bad_envs)
             pos_error = torch.linalg.norm(pos_error, dim=1) > 1e-3
