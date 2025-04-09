@@ -166,7 +166,7 @@ class Plug(HeldAssetCfg):
     # === SY Hong   (00741~01136) =====
 
 @configclass
-class Socket(HeldAssetCfg):
+class Socket(FixedAssetCfg):
     usd_path = f"{AUTOMATE_ASSET_DIR}/{ASSET_ID}_socket/{ASSET_ID}_socket.usd"
     base_height = 0.0
 
