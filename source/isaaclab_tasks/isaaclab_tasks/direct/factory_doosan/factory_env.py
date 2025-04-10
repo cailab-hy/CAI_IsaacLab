@@ -361,6 +361,7 @@ class FactoryEnv(DirectRLEnv):
 		)
 		self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_mul(rot_actions_quat, self.fingertip_midpoint_quat)
 
+		'''
 		# Euler angles Transformations: ZXY
 		target_euler_xyz = torch.stack(torch_utils.get_euler_xyz(self.ctrl_target_fingertip_midpoint_quat), dim=1)
 
@@ -372,7 +373,7 @@ class FactoryEnv(DirectRLEnv):
 		self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_from_euler_xyz(
 			roll=target_euler_xyz[:, 0], pitch=target_euler_xyz[:, 1], yaw=target_euler_xyz[:, 2],
 		)
-
+		'''
 		self.ctrl_target_gripper_dof_pos = ctrl_target_gripper_dof_pos
 		self.generate_ctrl_signals()
 
