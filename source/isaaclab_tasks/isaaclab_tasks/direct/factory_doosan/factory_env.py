@@ -366,7 +366,7 @@ class FactoryEnv(DirectRLEnv):
 
 		# === Due to the change in the type of robot, the angle for restricting actions to be upright has been modified. =======
 		target_euler_xyz[:, 0] = 0.0					# Panda: 3.1416   # Doosan: 0.0
-		target_euler_xyz[:, 1] = 0.0	 				# Panda: 0.0      # Doosan: np.pi/2
+		target_euler_xyz[:, 1] = np.pi/2	 				# Panda: 0.0      # Doosan: np.pi/2
 		# ======================================================================================================================
 
 		self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_from_euler_xyz(
@@ -419,8 +419,8 @@ class FactoryEnv(DirectRLEnv):
 		target_euler_xyz = torch.stack(torch_utils.get_euler_xyz(self.ctrl_target_fingertip_midpoint_quat), dim=1)
 
 		# === Due to the change in the type of robot, the angle for restricting actions to be upright has been modified. =======
-		target_euler_xyz[:, 0] = 0.0					# Panda: 3.1416   # Doosan: 0.0
-		target_euler_xyz[:, 1] = 0.0	 				# Panda: 0.0      # Doosan: np.pi/2
+		target_euler_xyz[:, 0] = 0.0						# Panda: 3.1416   # Doosan: 0.0
+		target_euler_xyz[:, 1] = np.pi/2	 				# Panda: 0.0      # Doosan: np.pi/2
 		# ======================================================================================================================
 
 		self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_from_euler_xyz(
@@ -675,8 +675,7 @@ class FactoryEnv(DirectRLEnv):
 			held_asset_relative_pos[:, 2] -= self.cfg_task.robot_cfg.doosan_fingerpad_length
 
 			# ======================================================================================================
-			# 왜 수정했는지 기억이 안난다...
-			'''
+			# 
 			initial_rot_deg = 90
 			rot_yaw_euler = torch.tensor([0.0, initial_rot_deg * np.pi / 180.0, 0.0], device=self.device).repeat(
 				self.num_envs, 1
@@ -684,12 +683,9 @@ class FactoryEnv(DirectRLEnv):
 			held_asset_relative_quat = torch_utils.quat_from_euler_xyz(
 				roll=rot_yaw_euler[:, 0], pitch=rot_yaw_euler[:, 1], yaw=rot_yaw_euler[:, 2]
 			)
-			'''
 			# ======================================================================================================
 		else:
 			raise NotImplementedError("Task not implemented")
-
-		held_asset_relative_quat = self.identity_quat
 
 		return held_asset_relative_pos, held_asset_relative_quat
 
