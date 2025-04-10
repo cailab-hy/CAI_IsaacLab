@@ -365,8 +365,8 @@ class FactoryEnv(DirectRLEnv):
 		target_euler_xyz = torch.stack(torch_utils.get_euler_xyz(self.ctrl_target_fingertip_midpoint_quat), dim=1)
 
 		# === Due to the change in the type of robot, the angle for restricting actions to be upright has been modified. =======
-		target_euler_xyz[:, 0] = 0.0					# Panda: 3.1416   # Doosan: 0.0
-		target_euler_xyz[:, 1] = np.pi/2	 				# Panda: 0.0      # Doosan: np.pi/2
+		target_euler_xyz[:, 0] = self.cfg_task.hand_init_orn[0]					# Panda: 3.1416   # Doosan: 0.0
+		target_euler_xyz[:, 1] = self.cfg_task.hand_init_orn[1]	 				# Panda: 0.0      # Doosan: np.pi/2
 		# ======================================================================================================================
 
 		self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_from_euler_xyz(
@@ -419,8 +419,8 @@ class FactoryEnv(DirectRLEnv):
 		target_euler_xyz = torch.stack(torch_utils.get_euler_xyz(self.ctrl_target_fingertip_midpoint_quat), dim=1)
 
 		# === Due to the change in the type of robot, the angle for restricting actions to be upright has been modified. =======
-		target_euler_xyz[:, 0] = 0.0						# Panda: 3.1416   # Doosan: 0.0
-		target_euler_xyz[:, 1] = np.pi/2	 				# Panda: 0.0      # Doosan: np.pi/2
+		target_euler_xyz[:, 0] = self.cfg_task.hand_init_orn[0]					# Panda: 3.1416   # Doosan: 0.0
+		target_euler_xyz[:, 1] = self.cfg_task.hand_init_orn[1]	 				# Panda: 0.0      # Doosan: np.pi/2
 		# ======================================================================================================================
 
 		self.ctrl_target_fingertip_midpoint_quat = torch_utils.quat_from_euler_xyz(
